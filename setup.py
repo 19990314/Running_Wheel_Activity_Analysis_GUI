@@ -1,6 +1,6 @@
 from setuptools import setup
 
-APP = ['main.py']
+APP = ['analysis_gui.py']
 OPTIONS = {
     'argv_emulation': True,
     'includes': ['tkinter', 'matplotlib', 'pandas', 'xlrd', 'openpyxl'],
