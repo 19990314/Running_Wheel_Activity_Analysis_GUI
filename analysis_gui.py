@@ -68,8 +68,8 @@ class MouseActivityApp:
         tk.Button(self.main_frame, text="24h bout monitor per Mouse", command=self.Bout_averaged_Rev_per_day).grid(row=3, column=1, pady=10)
         tk.Button(self.main_frame, text="Save Plots", command=self.save_plots).grid(row=3, column=2, pady=10)
 
-        tk.Label(self.main_frame, text="output: multiple plots, each showing\nactivity of one mouse spanning a 24-hr cycle").grid(row=4, column=0)
-        tk.Label(self.main_frame, text="===========================\n").grid(row=4, column=1)
+        tk.Label(self.main_frame, text="output: multiple pdfs, each showing\nrunning distance of one mouse spanning a 24-hr cycle").grid(row=4, column=0)
+        tk.Label(self.main_frame, text="output: multiple pdfs, each showing\nbout activity (in rev) of one mouse spanning a 24-hr cycle\n").grid(row=4, column=1)
         tk.Label(self.main_frame, text="+++++++++++++++++++++++++++++++++++++\n").grid(row=4, column=2)
 
         # button row 2
@@ -151,9 +151,9 @@ class MouseActivityApp:
         try:
             if self.file_path.endswith(".xls") | self.file_path.endswith(".xlsx"):
                 try:
-                    df = pd.read_csv(self.file_path, skiprows=9, sep="\t")
+                    df = pd.read_csv(self.file_path, skiprows=10, sep="\t")
                 except Exception:
-                    df = pd.read_csv(self.file_path, skiprows=9)
+                    df = pd.read_csv(self.file_path, skiprows=10)
             elif self.file_path.endswith(".csv"):
                 df = pd.read_csv(self.file_path, skiprows=10)
             else:
@@ -205,8 +205,6 @@ class MouseActivityApp:
         if "DateIndex" not in self.df.columns:
             messagebox.showerror("Missing Column", "Your dataframe has no 'DateIndex' column.")
             return\
-
-        print("hhhh???????????")
 
         bar_width = 1 / (24 * 60)  # 1 minute in days
         df = self.df.sort_values(["DateIndex", "Bin"]).copy()
@@ -302,7 +300,7 @@ class MouseActivityApp:
             # consecutive run id
             run_id = (active != active.shift(fill_value=False)).cumsum()
 
-            out = s.copy()
+            out = s.astype(float).copy()
             for _, idx in out.groupby(run_id).groups.items():
                 # idx is index labels of this run
                 if active.loc[idx].iloc[0]:  # only active runs
@@ -323,9 +321,11 @@ class MouseActivityApp:
             total_bout_revs = sum(bout_total_revs)
 
             return out, total_bout_time, total_bout_revs
+        #---------------------------------------------------------------------
 
-        # --- collect figures per mouse for PDF saving ---
         figs_by_mouse = {mid: [] for mid in self.get_selected_mice()}
+        bout_records = {}  # mid -> list of (day_idx, total_bout_revs)
+
 
         # Group by day first (prevents bouts from spanning midnight across days)
         for day_idx, day_df in df.groupby("DateIndex", sort=True):
@@ -338,58 +338,44 @@ class MouseActivityApp:
 
                 # compute bout-averaged rev within this day
                 y, total_bout_time, total_bout_revs = bout_average_series(day_df[rev_col], threshold=threshold)
+                bout_records.setdefault(mid, []).append((int(day_idx), float(total_bout_revs)))
 
-                fig, ax = plt.subplots(figsize=(8, 4))
+                fig, ax = plt.subplots(figsize=(8, 4.6))
                 ax.plot(day_df["Bin"], y, linewidth=1.4, color="tab:orange", label="Bout-avg rev")
 
                 ax.set_ylabel("Revolutions (bout-averaged)")
                 ax.set_xlabel("Time")
-
-                # Time axis: show time-of-day only
                 ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
                 ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
                 ax.set_xlim(day_df["Bin"].min(), day_df["Bin"].max())
 
-                # Titles
-                try:
-                    if int(mid) < 4:
-                        mouse_name = self.mouse_label[int(mid) - 1]
-                    else:
-                        mouse_name = self.mouse_label[int(mid) - 2]
-                except Exception:
-                    mouse_name = f"Mouse {mid}"
-
+                mouse_name = self.mouse_label[int(mid) - 1]
                 ax.set_title(f"D{int(day_idx)} - Bout Activity - {mouse_name}  ( ≥ {threshold} revs/min)")
 
                 ax.grid(True, axis="y", linestyle="--", alpha=0.35)
                 ax.spines["top"].set_visible(False)
                 ax.spines["right"].set_visible(False)
 
+                if total_bout_time == 0:
+                    print("s")
+
                 notation = (
                     f"Definition of running bouts: a bout is defined as one or more consecutive "
                     f"1-min intervals with wheel revolutions ≥ {threshold} rev·min⁻¹.\n"
                     f"Total bout duration = {total_bout_time:d} min; "
-                    f"total revolutions during bouts = {total_bout_revs:.1f} rev."
+                    f"avg speed during bouts = {total_bout_revs/total_bout_time:.1f} rev(s)/min."
                 )
-
+                fig.tight_layout(rect=[0.0, 0.1, 1.0, 1.0])
                 fig.text(
                     0.5,  # centered horizontally
-                    0.01,  # bottom margin
+                    0.0,  # bottom margin
                     notation,
                     ha="center",
                     va="bottom",
                     fontsize=9
                 )
-
                 fig.autofmt_xdate()
-                fig.tight_layout()
-                figs_by_mouse[mid].append(fig)
-
-        for widget in self.canvas_area.winfo_children():
-            widget.destroy()
-        canvas = FigureCanvasTkAgg(fig, master=self.canvas_area)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True)
+                figs_by_mouse.setdefault(mid, []).append(fig)
 
         # --- save one PDF per mouse ---
         saved_any = False
@@ -410,6 +396,39 @@ class MouseActivityApp:
             messagebox.showinfo("No Output",
                                 "No rev columns found for the selected mice (or 'Show Revolutions' unchecked).")
 
+        # ---- plot total_bout_revs across days (like total distance) ----
+        if bout_records:
+            fig2, ax2 = plt.subplots(figsize=(13, 6))
+
+            for mid, records in bout_records.items():
+                records = sorted(records, key=lambda x: x[0])
+                days = [f"D{d}" for d, _ in records]
+                vals = [v for _, v in records]
+
+                try:
+                    label = self.mouse_label[int(mid) - 1] if int(mid) < 4 else self.mouse_label[int(mid) - 2]
+                except Exception:
+                    label = f"Mouse {mid}"
+
+                ax2.plot(days, vals, marker="o", label=label)
+
+            ax2.set_xlabel("Date")
+            ax2.set_ylabel(f"Total revolutions during bouts (rev/day; threshold ≥ {threshold} rev·min⁻¹)")
+            ax2.set_title("Daily Running Output (Bout-based)")
+            ax2.grid(True, linestyle="--", alpha=0.4)
+            ax2.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+            ax2.legend(frameon=False)
+
+            fig2.tight_layout()
+            fig2.savefig(f"./mouse_diary/[summary]bout_speed_over_days_thr_{threshold}revpermin.pdf", dpi=300)
+            # Optionally display this summary figure in the GUI:
+            for widget in self.canvas_area.winfo_children():
+                widget.destroy()
+            canvas = FigureCanvasTkAgg(fig2, master=self.canvas_area)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True)
+
+
     def plot_activities_for_dayindex(self, day, df):
         fig, ax = plt.subplots(figsize=(10, 5))
         for mid in self.get_selected_mice():
@@ -418,10 +437,7 @@ class MouseActivityApp:
                 smoothed = df[km_col].interpolate().rolling(window=15, min_periods=1, center=True).mean()
                 df['Smoothed'] = smoothed  # keep the smoothed values with the df
                 df = df.sort_values(by='Bin')  # ensure proper x order
-                if int(mid) < 4:
-                    ax.plot(df['Bin'], df['Smoothed'], label=self.mouse_label[int(mid) - 1])
-                else:
-                    ax.plot(df['Bin'], df['Smoothed'], label=self.mouse_label[int(mid) - 2])
+                ax.plot(df['Bin'], df['Smoothed'], label=self.mouse_label[int(mid) - 1])
 
         ax.set_xlabel("Time")
         ax.set_ylabel("Distance (km)")
@@ -453,8 +469,12 @@ class MouseActivityApp:
 
     def compare_activity_sum_across_days(self):
         activity_records = {}
-        merged_df = self.assemble_files()
-        for day, df in merged_df.groupby('DateIndex'):
+
+        if self.df is None or self.df.empty:
+            messagebox.showinfo("No Data", "No dataframe loaded.")
+            return
+
+        for day, df in self.df.groupby('DateIndex'):
                 df.columns = [col.strip() for col in df.columns]
                 if 'Bin' not in df.columns:
                     continue
@@ -463,7 +483,7 @@ class MouseActivityApp:
                 df = df.dropna(axis=1, how='all')
 
                 mouse_ids = sorted(set(col.split()[2] for col in df.columns if col.startswith('1 8')))
-                for mid in mouse_ids:
+                for mid in self.get_selected_mice():
                     km_col = f'1 8 {mid} km'
                     #duration_hours = (df['Bin'].iloc[-1] - df['Bin'].iloc[0]).total_seconds() / 3600
                     if km_col in df.columns:
@@ -471,7 +491,7 @@ class MouseActivityApp:
                         total_km = km.sum()
                         activity_records.setdefault(mid, []).append((day, total_km))
 
-        filenames = [f"D1-D{day}_activity_levels_allmice"]
+        filenames = [f"./mouse_diary/[summary]total_distance_over_days"]
         for i in range(0,1):
             fig, ax = plt.subplots(figsize=(13, 6))
             for mid, records in activity_records.items():
@@ -517,8 +537,7 @@ class MouseActivityApp:
                     df = pd.read_csv(file_path, skiprows=10)
                 else:
                     continue
-                if file_path == "/Users/chen/Downloads/wheel_data/20250818-19_170137.xls":
-                    print("haha")
+
                 df = df.dropna(how="any").dropna(axis=1, how='all')
                 df.columns = [col.strip() for col in df.columns]
 
@@ -551,10 +570,6 @@ class MouseActivityApp:
 
         # merge files
         merged_df = pd.concat(df_assembled, ignore_index=True)
-        #merged_df = merged_df.fillna(0)
-
-        #merged_df = pd.concat([merged_df, new_df], ignore_index=True)
-        #merged_df = merged_df.sort_values(by='Bin').reset_index(drop=True)
 
         rev_cols = [col for col in merged_df.columns if col.endswith("rev")]
         max_rev_value = merged_df[rev_cols].max().max()
@@ -575,8 +590,6 @@ class MouseActivityApp:
 
     def hist_bouts_ct_per_min(self, circadian = "NA"):
         merged_df = self.assemble_files()
-        # Mouse label mapping
-        #mouse_label = ["Control", "SNr DTA", "GPi DTA", "DTA Control 1", "DTA Control 2", "DTA DAT"]
 
         filename = "histograms_bout_count_each_day.pdf"
         sufix = ""
@@ -1379,8 +1392,7 @@ class MouseActivityApp:
             messagebox.showwarning("No mice selected", "Please select at least one mouse.")
             return
         self.selected_mice = sel
-
-        self.update_plots()
+        #self.update_plots()
 
     def get_selected_mice(self):
         # fallback if not set
