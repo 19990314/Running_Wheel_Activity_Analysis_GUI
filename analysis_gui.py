@@ -6,6 +6,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import os
+from datetime import timedelta
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import re
 from datetime import datetime
 from datetime import date
@@ -30,8 +33,9 @@ class MouseActivityApp:
         self.date = 0
         self.date_number = 0
         self.dayrange = 0
-        self.reference_date = date(2025, 12, 18)
-        self.mouse_label = ["SNr DTA #1", "SNr DTA #2", "SNr DTA #3", "Control #0", "Control #1"]
+        #self.reference_date = date(2026, 2, 23)
+        self.reference_date = None
+        self.cohort = None
 
         self.available_mice = []
         self.selected_mice = []
@@ -158,8 +162,23 @@ class MouseActivityApp:
         self.next_button.pack(side="left", padx=5)
 
     def load_file(self):
-        self.file_path = filedialog.askopenfilename(filetypes=[("Data Files", "*.csv *.xls")])
+        self.file_path = filedialog.askopenfilename(filetypes=[("Data Files", "*.csv *.xls *.xlsx")])
         if self.file_path:
+            if self.file_path.endswith(".xls") | self.file_path.endswith(".csv"):
+                self.cohort = int(self.file_path[-5:-4])
+            else:
+                self.cohort = int(self.file_path[-6:-5])
+            if self.cohort == 1:
+                self.mouse_label = ["SC01(Control)", "LM45(SNr-DTA)", "SC02(GPi-DTA)"]
+            elif self.cohort == 2:
+                self.mouse_label = ["SC04(SNr-DTA)", "SC05(SNr-DTA)", "SC06(SNr-DTA)", "SC07(Control)", "SC08(Control)"]
+            elif self.cohort == 3:
+                self.mouse_label = ["SC09(SNr-DTA)", "SC10(SNr-DTA)", "SC11(SNr-DTA)", "SC12(SNr-DTA)", "SC13(Control)",
+                                    "SC14(Control)", "SC15(Control)"]
+            elif self.cohort == 4:
+                self.mouse_label = ["SC29(SNr-DTA)", "SC30(SNr-DTA)", "SC31(SNr-DTA)", "SC32(SNr-DTA)", "SC33(Control)",
+                                    "SC34(Control)", "SC35(Control)"]
+
             self.file_entry.delete(0, tk.END)
             self.file_entry.insert(0, self.file_path)
             self.load_dataframe()
@@ -214,11 +233,16 @@ class MouseActivityApp:
             self.num_mice = len(mouse_ids)
 
 
-            df['Bin'] = pd.to_datetime(df['Bin'], errors='coerce')
+            df['Bin'] = pd.to_datetime(df['Bin'], format="mixed", errors='coerce')
+            df = df.dropna(subset=['Bin'])  # need clean Bins before taking min
+            self.reference_date = df['Bin'].dt.normalize().min().date()
+            if self.cohort == 3 | self.cohort == 1:
+                self.reference_date = df['Bin'].dt.normalize().min().date() - timedelta(days=8)
+
+
             ref_ts = pd.Timestamp(self.reference_date)
             df['DateIndex'] = (df['Bin'].dt.normalize() - ref_ts).dt.days
             df['Date'] = df['Bin'].dt.date
-
             for col in df.columns:
                 if col != 'Bin':
                     df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -284,7 +308,7 @@ class MouseActivityApp:
                 except Exception:
                     mouse_name = f"Mouse {mid}"
 
-                ax.set_title(f"D{int(day_idx)} – Daily Activity – {mouse_name}")
+                ax.set_title(f"Cohort {self.cohort} - D{int(day_idx)} – Daily Activity – {mouse_name}")
                 ax.grid(True, axis="y", linestyle="--", alpha=0.35)
                 fig.autofmt_xdate()
                 fig.tight_layout()
@@ -295,16 +319,239 @@ class MouseActivityApp:
         for mid, figs in plots_by_mouse.items():
             if not figs:
                 continue
-
-            pdf_path = f"./mouse_diary/Mouse_{mid}_Daily_Activity.pdf"
+            pdf_path = f"./p1c{self.cohort}/Mouse_{mid}_Daily_Activity.pdf"
             with PdfPages(pdf_path) as pdf:
                 for fig in figs:
                     pdf.savefig(fig)
                     plt.close(fig)
 
-        messagebox.showinfo(
-            "Saved",
-            f"Saved {len(plots_by_mouse)} mouse-specific PDFs\n(one PDF per mouse) to ./mouse_diary/.")
+    def plot_bout_statistics(self):
+        """
+        Generate plots for bout statistics from the CSV file created by Bout_averaged_Rev_per_day.
+        Creates one PDF per mouse with 4 plots per day:
+          1. Total Bout Time (bar chart)
+          2. Most Frequent Bout Duration (bar chart)
+          3. Total Bout Revolutions (bar chart)
+          4. Number of Bouts (bar chart)
+        """
+        import os
+
+        # Load the CSV file
+        csv_path = f"./p1c{self.cohort}/Cohort{self.cohort}_Bout_Statistics.csv"
+
+        if not os.path.exists(csv_path):
+            messagebox.showerror("File Not Found",
+                                 f"Bout statistics CSV not found at: {csv_path}\n"
+                                 "Please run 'Bout_averaged_Rev_per_day' first.")
+            return
+
+        try:
+            bout_df = pd.read_csv(csv_path)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load CSV: {e}")
+            return
+
+        # Validate required columns
+        required_cols = ['MouseID', 'MouseLabel', 'DayIndex', 'TotalBoutTime_min',
+                         'MostFrequentBoutDuration_min', 'TotalBoutRevs', 'NumberOfBouts']
+        missing = [c for c in required_cols if c not in bout_df.columns]
+        if missing:
+            messagebox.showerror("Missing Columns",
+                                 f"CSV is missing required columns: {missing}")
+            return
+
+        # Get unique mice from CSV
+        selected_mice = self.get_selected_mice()
+
+        if not selected_mice:
+            messagebox.showinfo("No Data", "No selected mice found in the CSV file.")
+            return
+
+        # --- Collect figures per mouse ---
+        plots_by_mouse = {mid: [] for mid in selected_mice}
+
+        for mid in selected_mice:
+            mouse_data = bout_df[bout_df['MouseID'] == mid].sort_values('DayIndex')
+
+            if mouse_data.empty:
+                continue
+
+            mouse_name = mouse_data['MouseLabel'].iloc[0] if 'MouseLabel' in mouse_data.columns else f"Mouse {mid}"
+
+            # Group by day to create one page per day
+            for day_idx, day_data in mouse_data.groupby('DayIndex'):
+                # Create a figure with 2x2 subplots
+                fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+                fig.suptitle(f"Cohort {self.cohort} - D{int(day_idx)} - Bout Statistics - {mouse_name}",
+                             fontsize=14, fontweight='bold')
+
+                # Extract values (should be single row per day)
+                total_bout_time = day_data['TotalBoutTime_min'].iloc[0]
+                most_freq_duration = day_data['MostFrequentBoutDuration_min'].iloc[0]
+                total_bout_revs = day_data['TotalBoutRevs'].iloc[0]
+                num_bouts = day_data['NumberOfBouts'].iloc[0]
+
+                # Plot 1: Total Bout Time
+                ax1 = axes[0, 0]
+                ax1.bar(['Total Bout Time'], [total_bout_time], color='tab:blue', width=0.5)
+                ax1.set_ylabel('Time (minutes)', fontsize=11)
+                ax1.set_title('Total Time Spent in Bouts', fontsize=12, fontweight='bold')
+                ax1.grid(True, axis='y', linestyle='--', alpha=0.35)
+                ax1.set_ylim(0, max(total_bout_time * 1.2, 1))
+
+                # Plot 2: Most Frequent Bout Duration
+                ax2 = axes[0, 1]
+                ax2.bar(['Most Frequent Duration'], [most_freq_duration], color='tab:green', width=0.5)
+                ax2.set_ylabel('Duration (minutes)', fontsize=11)
+                ax2.set_title('Most Frequent Bout Duration', fontsize=12, fontweight='bold')
+                ax2.grid(True, axis='y', linestyle='--', alpha=0.35)
+                ax2.set_ylim(0, max(most_freq_duration * 1.2, 1))
+
+                # Plot 3: Total Bout Revolutions
+                ax3 = axes[1, 0]
+                ax3.bar(['Total Bout Revs'], [total_bout_revs], color='tab:orange', width=0.5)
+                ax3.set_ylabel('Revolutions', fontsize=11)
+                ax3.set_title('Total Revolutions During Bouts', fontsize=12, fontweight='bold')
+                ax3.grid(True, axis='y', linestyle='--', alpha=0.35)
+                ax3.set_ylim(0, max(total_bout_revs * 1.2, 1))
+
+                # Plot 4: Number of Bouts
+                ax4 = axes[1, 1]
+                ax4.bar(['Number of Bouts'], [num_bouts], color='tab:red', width=0.5)
+                ax4.set_ylabel('Count', fontsize=11)
+                ax4.set_title('Number of Bouts', fontsize=12, fontweight='bold')
+                ax4.grid(True, axis='y', linestyle='--', alpha=0.35)
+                ax4.set_ylim(0, max(num_bouts * 1.2, 1))
+
+                # Add text annotations with values
+                ax1.text(0, total_bout_time, f'{total_bout_time:.1f} min',
+                         ha='center', va='bottom', fontsize=10, fontweight='bold')
+                ax2.text(0, most_freq_duration, f'{most_freq_duration:.0f} min',
+                         ha='center', va='bottom', fontsize=10, fontweight='bold')
+                ax3.text(0, total_bout_revs, f'{total_bout_revs:.1f}',
+                         ha='center', va='bottom', fontsize=10, fontweight='bold')
+                ax4.text(0, num_bouts, f'{num_bouts:.0f}',
+                         ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+                # Remove x-tick labels for cleaner look
+                for ax in axes.flatten():
+                    ax.spines['top'].set_visible(False)
+                    ax.spines['right'].set_visible(False)
+                    ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
+
+                fig.tight_layout(rect=[0, 0, 1, 0.97])
+                plots_by_mouse[mid].append(fig)
+
+        # --- Save one PDF per mouse ---
+        for mid, figs in plots_by_mouse.items():
+            if not figs:
+                continue
+
+            pdf_path = f"./p1c{self.cohort}/Mouse_{mid}_Bout_Statistics.pdf"
+            with PdfPages(pdf_path) as pdf:
+                for fig in figs:
+                    pdf.savefig(fig)
+                    plt.close(fig)
+
+
+    def plot_bout_statistics(self, bout_df):
+        """
+        Generate time-series plots showing bout statistics across days.
+        Creates one figure with 4 subplots, each showing all mice over time.
+        """
+
+        # Get selected mice
+        unique_mice = bout_df['MouseID'].unique()
+        selected_mice = [m for m in unique_mice if m in self.get_selected_mice()]
+
+        if not selected_mice:
+            messagebox.showinfo("No Data", "No selected mice found in the CSV file.")
+            return
+
+        # Create color gradients (same as other plots)
+        def make_gradient_colors(base_color, n):
+            gradients = []
+            for i in range(n):
+                ratio = 0.1 + (0.55 * i / max(n - 1, 1))
+                color = tuple(base_color[j] * (1 - ratio) + ratio for j in range(3))
+                gradients.append(color)
+            return gradients
+
+        base_red = (0.80, 0.20, 0.20)
+        base_blue = (0.20, 0.35, 0.75)
+
+        # Separate mice by group
+        snr_mice = []
+        ctrl_mice = []
+
+        for mid in selected_mice:
+            label = bout_df[bout_df['MouseID'] == mid]['MouseLabel'].iloc[0]
+            if "SNr-DTA" in label:
+                snr_mice.append(mid)
+            elif "Control" in label:
+                ctrl_mice.append(mid)
+            else:
+                ctrl_mice.append(mid)
+
+        snr_colors = make_gradient_colors(base_red, len(snr_mice)) if snr_mice else []
+        ctrl_colors = make_gradient_colors(base_blue, len(ctrl_mice)) if ctrl_mice else []
+
+        mouse_colors = {}
+        for i, mid in enumerate(snr_mice):
+            mouse_colors[mid] = snr_colors[i]
+        for i, mid in enumerate(ctrl_mice):
+            mouse_colors[mid] = ctrl_colors[i]
+
+        # Create figure
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle(f"Cohort {self.cohort} - Bout Statistics Over Time",
+                     fontsize=15, fontweight='bold')
+
+        metrics = [
+            ('TotalBoutTime_min', 'Total Bout Time (min)', axes[0, 0]),
+            ('MostFrequentBoutDuration_min', 'Most Frequent Bout Duration (min)', axes[0, 1]),
+            ('MeanRevsIngBoutWindow', 'Mean Speed In Bout Window (revs/min)', axes[1, 0]),
+            ('NumberOfBouts', 'Number of Bouts', axes[1, 1])
+        ]
+
+        for column, ylabel, ax in metrics:
+            for mid in selected_mice:
+                mouse_data = bout_df[bout_df['MouseID'] == mid].sort_values('DayIndex')
+
+                if mouse_data.empty:
+                    continue
+
+                days = [f"D{int(d)}" for d in mouse_data['DayIndex']]
+                values = mouse_data[column].values
+                label = mouse_data['MouseLabel'].iloc[0]
+
+                ax.plot(days, values,
+                        label=label,
+                        marker='o',
+                        color=mouse_colors[mid],
+                        linewidth=2,
+                        markersize=6,
+                        markeredgecolor='k',
+                        markeredgewidth=0.5)
+
+            ax.set_ylabel(ylabel, fontsize=11, fontweight='bold')
+            ax.grid(True, alpha=0.3, linestyle='--')
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.tick_params(axis='x', rotation=45)
+
+        # Add legend to the last subplot
+        axes[1, 1].legend(loc='best', fontsize=9, frameon=False)
+
+        fig.tight_layout(rect=[0, 0, 1, 0.97])
+
+        # Save figure
+        output_path = f"./p1c{self.cohort}/Cohort{self.cohort}_Bout_Statistics_Timeseries.png"
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+        messagebox.showinfo("Saved", f"Saved time-series plot: {output_path}")
+
 
     def Bout_averaged_Rev_per_day(self):
         """
@@ -315,6 +562,7 @@ class MouseActivityApp:
           - one PDF per mouse
           - each PDF: one page per day (DateIndex)
           - x-axis: time-of-day
+          - one CSV file with bout statistics per mouse per day
         """
         if self.df is None or self.df.empty:
             self.load_dataframe()
@@ -339,7 +587,7 @@ class MouseActivityApp:
 
             active = s > 0
             if active.empty:
-                return s
+                return s, 0, 0, []
 
             # consecutive run id
             run_id = (active != active.shift(fill_value=False)).cumsum()
@@ -364,12 +612,15 @@ class MouseActivityApp:
             total_bout_time = sum(bout_durations)
             total_bout_revs = sum(bout_total_revs)
 
-            return out, total_bout_time, total_bout_revs
-        #---------------------------------------------------------------------
+            return out, total_bout_time, total_bout_revs, bout_durations
+
+        # ---------------------------------------------------------------------
 
         figs_by_mouse = {mid: [] for mid in self.get_selected_mice()}
         bout_records = {}  # mid -> list of (day_idx, total_bout_revs)
 
+        # NEW: Storage for CSV data
+        csv_records = []  # List of dictionaries for CSV output
 
         # Group by day first (prevents bouts from spanning midnight across days)
         for day_idx, day_df in df.groupby("DateIndex", sort=True):
@@ -381,8 +632,32 @@ class MouseActivityApp:
                     continue
 
                 # compute bout-averaged rev within this day
-                y, total_bout_time, total_bout_revs = bout_average_series(day_df[rev_col], threshold=threshold)
+                y, total_bout_time, total_bout_revs, bout_durations = bout_average_series(day_df[rev_col],
+                                                                                          threshold=threshold)
                 bout_records.setdefault(mid, []).append((int(day_idx), float(total_bout_revs)))
+
+                # NEW: Calculate most frequent bout duration
+                if bout_durations:
+                    from collections import Counter
+                    duration_counts = Counter(bout_durations)
+                    most_frequent_duration = duration_counts.most_common(1)[0][0]  # Get the most common duration
+                else:
+                    most_frequent_duration = 0
+
+                # NEW: Store data for CSV
+                if total_bout_time != 0:
+                    v= total_bout_revs / total_bout_time
+                else:
+                    v=0
+                csv_records.append({
+                    'MouseID': mid,
+                    'MouseLabel': self.mouse_label[int(mid) - 1],
+                    'DayIndex': int(day_idx),
+                    'TotalBoutTime_min': total_bout_time,
+                    'MostFrequentBoutDuration_min': most_frequent_duration,
+                    'NumberOfBouts': len(bout_durations),
+                    'MeanRevsIngBoutWindow': v
+                })
 
                 fig, ax = plt.subplots(figsize=(8, 4.6))
                 ax.plot(day_df["Bin"], y, linewidth=1.4, color="tab:orange", label="Bout-avg rev")
@@ -394,20 +669,21 @@ class MouseActivityApp:
                 ax.set_xlim(day_df["Bin"].min(), day_df["Bin"].max())
 
                 mouse_name = self.mouse_label[int(mid) - 1]
-                ax.set_title(f"D{int(day_idx)} - Bout Activity - {mouse_name}  ( ≥ {threshold} revs/min)")
-
+                ax.set_title(
+                    f"Cohort {self.cohort} - D{int(day_idx)} - Bout Activity - {mouse_name}  ( ≥ {threshold} revs/min)")
                 ax.grid(True, axis="y", linestyle="--", alpha=0.35)
                 ax.spines["top"].set_visible(False)
                 ax.spines["right"].set_visible(False)
 
                 if total_bout_time == 0:
-                    print("s")
+                    print(str(mid) + " at " + str(day_idx))
+                    continue
 
                 notation = (
                     f"Definition of running bouts: a bout is defined as one or more consecutive "
                     f"1-min intervals with wheel revolutions ≥ {threshold} rev·min⁻¹.\n"
                     f"Total bout duration = {total_bout_time:d} min; "
-                    f"avg speed during bouts = {total_bout_revs/total_bout_time:.1f} rev(s)/min."
+                    f"avg speed during bouts = {total_bout_revs / total_bout_time:.1f} rev(s)/min."
                 )
                 fig.tight_layout(rect=[0.0, 0.1, 1.0, 1.0])
                 fig.text(
@@ -427,18 +703,25 @@ class MouseActivityApp:
             if not figs:
                 continue
 
-            pdf_path = f"./mouse_diary/Mouse_{mid}_Bout_Averaged_Rev_byDay.pdf"
+            pdf_path = f"./p1c{self.cohort}/Mouse_{mid}_Bout_Averaged_Rev_byDay.pdf"
             with PdfPages(pdf_path) as pdf:
                 for fig in figs:
                     pdf.savefig(fig)
                     plt.close(fig)
 
             saved_any = True
-        if saved_any:
-            messagebox.showinfo("Saved", f"Saved one PDF per mouse to: ./mouse_diary/")
-        else:
-            messagebox.showinfo("No Output",
-                                "No rev columns found for the selected mice (or 'Show Revolutions' unchecked).")
+
+
+        # NEW: Save CSV file with bout statistics
+        if csv_records:
+            csv_df = pd.DataFrame(csv_records)
+            self.plot_bout_statistics(csv_df)
+            # Sort by MouseID then DayIndex for readability
+            csv_df = csv_df.sort_values(['MouseID', 'DayIndex'])
+            csv_path = f"./p1c{self.cohort}/Cohort{self.cohort}_Bout_Statistics.csv"
+            csv_df.to_csv(csv_path, index=False)
+            print(f"Saved bout statistics CSV: {csv_path}")
+
 
         # ---- plot total_bout_revs across days (like total distance) ----
         if bout_records:
@@ -450,7 +733,7 @@ class MouseActivityApp:
                 vals = [v for _, v in records]
 
                 try:
-                    label = self.mouse_label[int(mid) - 1] if int(mid) < 4 else self.mouse_label[int(mid) - 2]
+                    label = self.mouse_label[int(mid) - 1]
                 except Exception:
                     label = f"Mouse {mid}"
 
@@ -458,20 +741,19 @@ class MouseActivityApp:
 
             ax2.set_xlabel("Date")
             ax2.set_ylabel(f"Total revolutions during bouts (rev/day; threshold ≥ {threshold} rev·min⁻¹)")
-            ax2.set_title("Daily Running Output (Bout-based)")
+            ax2.set_title(f"Cohort {self.cohort} - Daily Running Output (Bout-based)")
             ax2.grid(True, linestyle="--", alpha=0.4)
             ax2.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
             ax2.legend(frameon=False)
 
             fig2.tight_layout()
-            fig2.savefig(f"./mouse_diary/[summary]bout_speed_over_days_thr_{threshold}revpermin.pdf", dpi=300)
+            fig2.savefig(f"./p1c{self.cohort}/[summary]bout_speed_over_days_thr_{threshold}revpermin.pdf", dpi=300)
             # Optionally display this summary figure in the GUI:
             for widget in self.canvas_area.winfo_children():
                 widget.destroy()
             canvas = FigureCanvasTkAgg(fig2, master=self.canvas_area)
             canvas.draw()
             canvas.get_tk_widget().pack(fill="both", expand=True)
-
 
     def plot_activities_for_dayindex(self, day, df):
         fig, ax = plt.subplots(figsize=(10, 5))
@@ -486,7 +768,7 @@ class MouseActivityApp:
         ax.set_xlabel("Time")
         ax.set_ylabel("Distance (km)")
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-        plt.title(f"Day {day} - Activity Comparison across Mice")
+        plt.title(f"Cohort {self.cohort} - Day {day} - Activity Comparison across Mice")
         plt.xticks(rotation=45)
         plt.grid(True)
         ax.legend()
@@ -501,15 +783,18 @@ class MouseActivityApp:
 
 
     def distance_comparison_each_day(self):
-        with PdfPages(f"./mouse_diary/Allmice_Daily_Activity.pdf") as pdf:
+        with PdfPages(f"./p1c{self.cohort}/Allmice_Daily_Activity.pdf") as pdf:
             # Loop through each day
             for day, day_df in self.df.groupby('DateIndex'):
                 fig = self.plot_activities_for_dayindex(day, day_df)
                 pdf.savefig(fig)
                 plt.close(fig)
 
-
     def compare_activity_sum_across_days(self):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import re
+
         activity_records = {}
 
         if self.df is None or self.df.empty:
@@ -517,43 +802,112 @@ class MouseActivityApp:
             return
 
         for day, df in self.df.groupby('DateIndex'):
-                df.columns = [col.strip() for col in df.columns]
-                if 'Bin' not in df.columns:
-                    continue
-                df['Bin'] = pd.to_datetime(df['Bin'], errors='coerce')
-                df = df.dropna(subset=['Bin'])
-                df = df.dropna(axis=1, how='all')
+            df.columns = [col.strip() for col in df.columns]
+            if 'Bin' not in df.columns:
+                continue
+            df['Bin'] = pd.to_datetime(df['Bin'], errors='coerce')
+            df = df.dropna(subset=['Bin'])
+            df = df.dropna(axis=1, how='all')
 
-                mouse_ids = sorted(set(col.split()[2] for col in df.columns if col.startswith('1 8')))
-                for mid in self.get_selected_mice():
-                    km_col = f'1 8 {mid} km'
-                    #duration_hours = (df['Bin'].iloc[-1] - df['Bin'].iloc[0]).total_seconds() / 3600
-                    if km_col in df.columns:
-                        km = pd.to_numeric(df[km_col], errors='coerce')
-                        total_km = km.sum()
-                        activity_records.setdefault(mid, []).append((day, total_km))
+            mouse_ids = sorted(set(col.split()[2] for col in df.columns if col.startswith('1 8')))
+            for mid in self.get_selected_mice():
+                km_col = f'1 8 {mid} km'
+                if km_col in df.columns:
+                    km = pd.to_numeric(df[km_col], errors='coerce')
+                    total_km = km.sum()
+                    activity_records.setdefault(mid, []).append((day, total_km))
 
-        filenames = [f"./mouse_diary/[summary]total_distance_over_days"]
-        for i in range(0,1):
-            fig, ax = plt.subplots(figsize=(13, 6))
-            for mid, records in activity_records.items():
-                records = sorted(records, key=lambda x: x[0])
-                days = ["D"+str(r[0]) for r in records]
+        # Helper function to generate color gradients
+        def make_gradient_colors(base_color, n):
+            """Generate n colors as gradient from base_color to white"""
+            gradients = []
+            for i in range(n):
+                # Mix base color with white, varying the proportion
+                ratio = 0.1 + (0.55 * i / max(n - 1, 1))  # From 10% to 65% mix with white
+                color = tuple(base_color[j] * (1 - ratio) + ratio for j in range(3))
+                gradients.append(color)
+            return gradients
+
+        # Helper function to extract SC number from label
+        def extract_sc_number(label):
+            """Extract the SC number from label like 'SC12(SNr-DTA)'"""
+            match = re.search(r'SC(\d+)', label)
+            return int(match.group(1)) if match else 999
+
+        # Define base colors
+        base_red = (0.80, 0.20, 0.20)  # Red for SNr-DTA
+        base_blue = (0.20, 0.35, 0.75)  # Blue for Control
+
+        # Sort mice by group (SNr-DTA first, then Control), then by SC number
+        snr_mice = []
+        ctrl_mice = []
+
+        for mid in activity_records.keys():
+            label = self.mouse_label[int(mid) - 1]
+            sc_number = extract_sc_number(label)
+
+            if "SNr-DTA" in label:
+                snr_mice.append((mid, sc_number))
+            elif "Control" in label or "GPi-DTA" in label:
+                ctrl_mice.append((mid, sc_number))
+
+        # Sort each group by SC number
+        snr_mice.sort(key=lambda x: x[1])  # Sort by SC number
+        ctrl_mice.sort(key=lambda x: x[1])  # Sort by SC number
+
+        # Extract just the mouse IDs after sorting
+        snr_mice_ids = [mid for mid, _ in snr_mice]
+        ctrl_mice_ids = [mid for mid, _ in ctrl_mice]
+
+        # Generate colors
+        snr_colors = make_gradient_colors(base_red, len(snr_mice_ids)) if snr_mice_ids else []
+        ctrl_colors = make_gradient_colors(base_blue, len(ctrl_mice_ids)) if ctrl_mice_ids else []
+
+        # Create color mapping for each mouse
+        mouse_colors = {}
+        for i, mid in enumerate(snr_mice_ids):
+            mouse_colors[mid] = snr_colors[i]
+        for i, mid in enumerate(ctrl_mice_ids):
+            mouse_colors[mid] = ctrl_colors[i]
+
+        # Sort mice: SNr-DTA first (by SC number), then Control (by SC number)
+        sorted_mice = snr_mice_ids + ctrl_mice_ids
+
+        # Create figure
+        filenames = [f"./p1c{self.cohort}/[summary]total_distance_over_days.png"]
+        fig, ax = plt.subplots(figsize=(13, 6))
+
+        # Plot in sorted order
+        for mid in sorted_mice:
+            if mid in activity_records:
+                records = sorted(activity_records[mid], key=lambda x: x[0])
+                days = ["D" + str(r[0]) for r in records]
                 values = [r[1] for r in records]
-                ax.plot(days, values, label=self.mouse_label[int(mid)-1], marker='o')
 
-            ax.set_xlabel("Date")
-            ax.set_ylabel("Distance run from 00:00 to 24:00 (km)")
-            plt.title("Activity Level Over Time")
-            plt.xticks(rotation=45)
-            plt.grid(True)
-            ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-            ax.legend()
-            fig.savefig(filenames[i])
-            plt.close(fig)
+                ax.plot(days, values,
+                        label=self.mouse_label[int(mid) - 1],
+                        marker='o',
+                        color=mouse_colors[mid],
+                        linewidth=2,
+                        markersize=6,
+                        markeredgecolor='k',
+                        markeredgewidth=0.5)
 
+        ax.set_xlabel("Date", fontsize=12, fontweight='bold')
+        ax.set_ylabel("Distance run from 00:00 to 24:00 (km)", fontsize=12, fontweight='bold')
+        plt.title(f"Cohort {self.cohort} - Activity Level Over Time", fontsize=14, fontweight='bold')
+        plt.xticks(rotation=45)
+        plt.grid(True, alpha=0.3)
+        ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+        ax.legend(loc='best', fontsize=10)
+        plt.tight_layout()
+
+        fig.savefig(filenames[0], dpi=300, bbox_inches='tight')
+
+        # Display in canvas
         for widget in self.canvas_area.winfo_children():
             widget.destroy()
+
         canvas = FigureCanvasTkAgg(fig, master=self.canvas_area)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -631,15 +985,15 @@ class MouseActivityApp:
         return merged_df
 
     def hist_bouts_ct_per_min(self, circadian = "NA"):
-        filename = "./mouse_diary/histograms_bout_count_each_day.pdf"
+        filename = f"./p1c{self.cohort}/histograms_bout_count_each_day.pdf"
         sufix = ""
         if circadian == "day":
             merged_df = pd.DataFrame([x for i, x in self.df.iterrows() if x['Bin'].hour >= 6 and x['Bin'].hour < 18])
-            filename = "./mouse_diary/histograms_bout_count_each_day_(daytime).pdf"
+            filename = f"./p1c{self.cohort}/histograms_bout_count_each_day_(daytime).pdf"
             sufix = " - Daytime (6:00 - 18:00)"
         elif circadian == "night":
             merged_df = pd.DataFrame([x for i, x in self.df.iterrows() if x['Bin'].hour >= 18 or x['Bin'].hour < 6])
-            filename = "./mouse_diary/histograms_bout_count_each_day_(nighttime).pdf"
+            filename = f"./p1c{self.cohort}/histograms_bout_count_each_day_(nighttime).pdf"
             sufix = " - Nighttime (18:00 - 06:00)"
 
         # Loop through each day
@@ -648,7 +1002,7 @@ class MouseActivityApp:
             mouse_ids = self.get_selected_mice()
             for day, day_df in self.df.groupby('DateIndex'):
                 fig, axes = plt.subplots(len(mouse_ids), 1, figsize=(8, 3 * len(mouse_ids)), sharex=True)
-                fig.suptitle(f"Revolution counts/min Histogram - D{day}" + sufix)
+                fig.suptitle(f"Cohort {self.cohort} - Revolution counts/min Histogram - D{day}" + sufix)
                 if len(mouse_ids) == 1:  # Handle case of 1 mouse
                     axes = [axes]
 
@@ -705,15 +1059,15 @@ class MouseActivityApp:
         return bout_lengths
 
     def hist_bouts_duration(self, circadian = "NA"):
-        filename = "./mouse_diary/histograms_bout_duration_each_day.pdf"
+        filename = f"./p1c{self.cohort}/histograms_bout_duration_each_day.pdf"
         sufix = ""
         if circadian == "day":
             merged_df = pd.DataFrame([x for i, x in self.df.iterrows() if x['Bin'].hour >= 6 and x['Bin'].hour < 18])
-            filename = "./mouse_diary/histograms_bout_duration_each_day_(daytime).pdf"
+            filename = f"./p1c{self.cohort}/histograms_bout_duration_each_day_(daytime).pdf"
             sufix = "\nDaytime (6:00 - 18:00)"
         elif circadian == "night":
             merged_df = pd.DataFrame([x for i, x in self.df.iterrows() if x['Bin'].hour >= 18 or x['Bin'].hour < 6])
-            filename = "./mouse_diary/histograms_bout_duration_each_day_(nighttime).pdf"
+            filename = f"./p1c{self.cohort}/histograms_bout_duration_each_day_(nighttime).pdf"
             sufix = "\nNighttime (18:00 - 06:00)"
 
         # each day
@@ -724,7 +1078,7 @@ class MouseActivityApp:
                 print(f"Day{day} start")
 
                 fig, axes = plt.subplots(len(mouse_ids), 1, figsize=(8, 3 * len(mouse_ids)), sharex=True)
-                fig.suptitle(f"Bout Duration Histograms - D{day}" + sufix)
+                fig.suptitle(f"Cohort {self.cohort} - Bout Duration Histograms - D{day}" + sufix)
 
                 if len(mouse_ids) == 1:  # Handle case of 1 mouse
                     axes = [axes]
@@ -760,10 +1114,10 @@ class MouseActivityApp:
 
                         # Add grid for readability
                         ax.grid(axis='y', linestyle='--', alpha=0.6)
-
-                print(max(max_rev))
-                for i in axes:
-                    i.set_ylim(1, max(max_rev))
+                if max_rev:
+                    print(max(max_rev))
+                    for i in axes:
+                        i.set_ylim(1, max(max_rev))
 
                 plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust for suptitle
                 #plt.show()
@@ -781,14 +1135,14 @@ class MouseActivityApp:
         self.mouse_ids = self.get_selected_mice()
 
         sufix = ""
-        filename = "mouse_diary/histograms_bout_duration_each_mouse.pdf"
+        filename = f"p1c{self.cohort}/histograms_bout_duration_each_mouse.pdf"
         if circadian == "day":
             merged_df = pd.DataFrame([x for i, x in self.df.iterrows() if x['Bin'].hour >= 6 and x['Bin'].hour < 18])
-            filename = "mouse_diary/histograms_bout_duration_each_mouse_(daytime).pdf"
-            sufix = "\nDaytime (6:00 - 18:00)"
+            filename = f"p1c{self.cohort}/histograms_bout_duration_each_mouse_(daytime).pdf"
+            sufix = f"\nDaytime (6:00 - 18:00)"
         elif circadian == "night":
             merged_df = pd.DataFrame([x for i, x in self.df.iterrows() if x['Bin'].hour >= 18 or x['Bin'].hour < 6])
-            filename = "mouse_diary/histograms_bout_duration_each_mouse_(nighttime).pdf"
+            filename = f"p1c{self.cohort}/histograms_bout_duration_each_mouse_(nighttime).pdf"
             sufix = "\nNighttime (18:00 - 06:00)"
 
         # clean up
@@ -832,7 +1186,7 @@ class MouseActivityApp:
                     ax.text(0.5, 0.5, f"No bouts to plot for {mtitle}", ha='center', va='center',
                             transform=ax.transAxes)
                     ax.axis('off')
-                    fig.suptitle(f"Bout Duration Histogram — {mtitle}" + sufix)
+                    fig.suptitle(f"Cohort {self.cohort} - Bout Duration Histograms — {mtitle}"+ sufix)
                     pdf.savefig(fig)
                     plt.close(fig)
                     continue
@@ -845,7 +1199,7 @@ class MouseActivityApp:
 
                 # Figure title: mouse name
                 mtitle = self.mouse_label[int(mid) - 1]
-                fig.suptitle(f"Bout Duration Histograms — {mtitle}"+ sufix)
+                fig.suptitle(f"Cohort {self.cohort} - Bout Duration Histogram — {mtitle}" + sufix)
 
                 # ----- iterate over DAYS (one subplot per day) -----
                 for ax, day in zip(axes, valid_days):
@@ -934,7 +1288,7 @@ class MouseActivityApp:
         return pd.DataFrame(records)
 
 
-    def plot_time_on_or_not_on_wheel(self, df, threshold = 0, save_path="./mouse_diary/time_on_wheel_summary.pdf", state = "on", notes = "", circadian=False):
+    def plot_time_on_or_not_on_wheel(self, df, threshold = 0, state = "on", notes = "", circadian=False):
         if circadian:
             fig, axes = plt.subplots(3, 2, figsize=(10, 15), sharey=True)
             start_axes = axes[0][0]
@@ -955,9 +1309,9 @@ class MouseActivityApp:
             fig.suptitle(f"Time NOT on Wheel (mean ± SEM)" + notes, y=0.98, fontsize=16)
             start_axes.set_ylabel("Minutes not on wheel per day")
 
-        # todo: change here
-        groupA = [1, 2, 3]
-        groupB = [5]
+        groupA = [mid for mid in self.get_selected_mice() if "SNr" in self.mouse_label[mid-1]]
+        groupB = [mid for mid in self.get_selected_mice() if "Control" in self.mouse_label[mid-1]]
+
 
         def agg_group(data, mice, columnname='MinutesOnWheel'):
             rows = []
@@ -1055,18 +1409,13 @@ class MouseActivityApp:
         canvas.get_tk_widget().pack(fill="both", expand=True)
 
         # Optional: save to a publication-ready PDF/PNG by extension in save_path
-        if save_path:
-            if save_path.lower().endswith(".pdf"):
-                with PdfPages(save_path) as pdf:
-                    pdf.savefig(fig, bbox_inches="tight")
-                    plt.close(fig)
-            else:
-                fig.savefig(save_path, dpi=300, bbox_inches="tight")
-                plt.close(fig)
+        with PdfPages(f"./p1c{self.cohort}/time_on_wheel_summary.pdf") as pdf:
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
 
     def plot_time_on_wheel_summary(self, save_path="time_on_wheel_summary.pdf"):
-        self.plot_time_on_or_not_on_wheel(self.df, threshold=2, save_path="./mouse_diary/time_not_on_wheel_D1-26_circadian.jpg",state = "off", notes = " *1st week removed",circadian=True)
-        self.plot_time_on_or_not_on_wheel(self.df, threshold=2, save_path="./mouse_diary/time_on_wheel_D1-26_circadian.jpg",state = "on", notes = " *1st week removed", circadian=True)
+        self.plot_time_on_or_not_on_wheel(self.df, threshold=2, state = "off", notes = " *1st week removed",circadian=True)
+        self.plot_time_on_or_not_on_wheel(self.df, threshold=2, state = "on", notes = " *1st week removed", circadian=True)
 
 
 
@@ -1093,21 +1442,19 @@ class MouseActivityApp:
 
     def plot_temporal_two_week_splits(self):
         """
-        Build two figures, each with 2 subplots side-by-side:
+        Build one PDF with two figures:
+          - Page 1: Raw data (m/min)
+          - Page 2: Normalized data (%)
 
-          Fig A (Group 1: mice 1–3):
-             • Left  = Days 8–14
-             • Right = Days 15–21
-
-          Fig B (Group 2: mice 5–7):
-             • Left  = Days 15–21
-             • Right = Days 22–28
+        Each figure has 2 subplots side-by-side:
+           • Left  = Week 2 (Days 8–14)
+           • Right = Week 3 (Days 15–21)
 
         Curves are mean ± SEM across days, aligned to minute of day (0..1439).
-        Y-axis: meters per minute (m/min).
         """
         from tkinter import filedialog, messagebox
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.backends.backend_pdf import PdfPages
 
         # --- local smoother (tweakable) ---
         def smooth_1d_local(x, window=31, polyorder=2):
@@ -1130,7 +1477,6 @@ class MouseActivityApp:
                 ys = xf
             ys[isnan] = np.nan
             return ys
-
 
         # --- groups & labels ---
         group1 = self.get_selected_mice()
@@ -1169,20 +1515,14 @@ class MouseActivityApp:
         group1 = [int(m) for m in self.get_selected_mice()]
 
         # Use a proper label dict
-        # If you have a list like ["SNr DTA #1", "SNr DTA #2", ...], map it explicitly:
-        label_map = {
-            1: "SNr DTA #1",
-            2: "SNr DTA #2",
-            3: "SNr DTA #3",
-            5: "Control #1",
-        }
+        label_map = {int(mid): self.mouse_label[int(mid) - 1] for mid in group1}
 
         per_mouse_arrays = {m: [] for m in group1}
         per_mouse_days = {m: [] for m in group1}
 
         df = df.sort_values(["DateIndex", "Bin"])
 
-        # ----- KEY CHANGE: build one vector PER DAY PER MOUSE -----
+        # ----- Build one vector PER DAY PER MOUSE -----
         for day_idx, day_df in df.groupby("DateIndex", sort=True):
             mod = day_df["Bin"].dt.hour * 60 + day_df["Bin"].dt.minute
 
@@ -1216,11 +1556,13 @@ class MouseActivityApp:
             return np.clip(mean, 0, None), sem
 
         # --- plotting helper (one figure, two subplots) ---
-        def plot_group_two_weeks(group, week1, week2, title):
+        def plot_group_two_weeks(group, week1, week2, title, ylabel, normalize=False):
             """
             group: list of mouse IDs
             week1: (lo, hi)
             week2: (lo, hi)
+            ylabel: label for y-axis
+            normalize: if True, normalize each mouse's data to percentage of max
             """
             x = np.arange(1440)
             tick_minutes = np.arange(0, 24 * 60 + 1, 120)
@@ -1236,17 +1578,41 @@ class MouseActivityApp:
             })
 
             fig, axes = plt.subplots(1, 2, figsize=(18, 5), sharey=True)
+
             for ax, (lo, hi), subtitle in zip(axes, [week1, week2], ["Week 2", "Week 3"]):
+                snr_mice = [mid for mid in group if "SNr" in label_map.get(mid, "") or "DTA" in label_map.get(mid, "")]
+                ctrl_mice = [mid for mid in group if "Control" in label_map.get(mid, "")]
+
+                def make_gradient(base_rgb, n):
+                    """Darker to lighter shades of base_rgb."""
+                    return [tuple(base_rgb[j] + (1 - base_rgb[j]) * (0.15 + 0.55 * i / max(n - 1, 1))
+                                  for j in range(3))
+                            for i in range(n)]
+
+                snr_colors = make_gradient((0.75, 0.10, 0.10), len(snr_mice))
+                ctrl_colors = make_gradient((0.10, 0.25, 0.75), len(ctrl_mice))
+                color_map = {mid: c for mid, c in zip(snr_mice, snr_colors)}
+                color_map.update({mid: c for mid, c in zip(ctrl_mice, ctrl_colors)})
+
                 for mid in group:
-                    # pick days within the range for this mouse
                     stacks = [arr for arr, di in zip(per_mouse_arrays[mid], per_mouse_days[mid]) if lo <= di <= hi]
                     if not stacks:
                         continue
                     m, s = mean_sem(stacks)
                     if m is None:
                         continue
-                    line, = ax.plot(x, m, linewidth=1.8, label=label_map.get(mid, f"Mouse {mid}"))
-                    ax.fill_between(x, m - s, m + s, alpha=0.25, linewidth=0, color=line.get_color())
+
+                    # Normalize if requested
+                    if normalize:
+                        max_val = np.nanmax(m)
+                        if max_val > 0:
+                            m = (m / max_val) * 100
+                            s = (s / max_val) * 100
+
+                    col = color_map.get(mid, "gray")
+                    ax.plot(x, m, linewidth=1.8, label=label_map.get(mid, f"Mouse {mid}"), color=col)
+                    ax.fill_between(x, m - s, m + s, alpha=0.20, linewidth=0, color=col)
+
                 ax.set_title(f"{subtitle}", pad=8)
                 ax.set_xlim(0, 1440)
                 ax.set_xticks(tick_minutes)
@@ -1255,29 +1621,80 @@ class MouseActivityApp:
                 ax.set_axisbelow(True)
                 ax.spines["top"].set_visible(False)
                 ax.spines["right"].set_visible(False)
-            #normalize
-            axes[0].set_ylabel("Speed (m/min)")
-            #axes[0].set_ylabel("normalized speed (%)")
-            axes[0].legend(loc="upper center", frameon=False)
-            axes[1].legend(loc="upper center", frameon=False)
+
+            axes[0].set_ylabel(ylabel)
+
+            # Sort legend
+            inv_label_map = {v: k for k, v in label_map.items()}
+            for ax in axes:
+                handles, labels = ax.get_legend_handles_labels()
+                sorted_pairs = sorted(
+                    zip(handles, labels),
+                    key=lambda pair: inv_label_map.get(pair[1], 9999)
+                )
+                sorted_handles, sorted_labels = zip(*sorted_pairs) if sorted_pairs else ([], [])
+                ax.legend(sorted_handles, sorted_labels, loc="upper center", frameon=False)
+
             fig.suptitle(title, fontsize=15, y=0.99)
             fig.tight_layout(rect=[0, 0, 1, 0.96])
             return fig
 
-        # --- build the two figures per your ranges ---
-        #normalized
-        figA = plot_group_two_weeks(group1, week1=(8, 14), week2=(15, 21), title="Temporal Activity")
+        # --- Build both figures ---
+        # Figure 1: Raw data
+        if self.cohort != 3:
+            figRaw = plot_group_two_weeks(
+                group1,
+                week1=(8, 14),
+                week2=(15, 21),
+                title=f"Cohort {self.cohort} - Temporal Activity (Raw Data)",
+                ylabel="Speed (m/min)",
+                normalize=False
+            )
+            figNorm = plot_group_two_weeks(
+                group1,
+                week1=(8, 14),
+                week2=(15, 21),
+                title=f"Cohort {self.cohort} - Temporal Activity (Normalized)",
+                ylabel="Normalized Speed (%)",
+                normalize=True
+            )
+        else:
+            figRaw = plot_group_two_weeks(
+                group1,
+                week1=(1, 7),
+                week2=(8, 14),
+                title=f"Cohort {self.cohort} - Temporal Activity (Raw Data)",
+                ylabel="Speed (m/min)",
+                normalize=False
+            )
+            # Figure 2: Normalized data
+            figNorm = plot_group_two_weeks(
+                group1,
+                week1=(1, 7),
+                week2=(8, 14),
+                title=f"Cohort {self.cohort} - Temporal Activity (Normalized)",
+                ylabel="Normalized Speed (%)",
+                normalize=True
+            )
 
-        # --- show Fig A in Tk canvas (swap to figB if you prefer)
+        # --- Save both figures to one PDF ---
+        pdf_path = f"./p1c{self.cohort}/Cohort{self.cohort}_24h_activity_w2vs3.pdf"
+        with PdfPages(pdf_path) as pdf:
+            pdf.savefig(figRaw, bbox_inches="tight")
+            pdf.savefig(figNorm, bbox_inches="tight")
+
+        print(f"Saved PDF with 2 pages: {pdf_path}")
+
+        # --- Show raw data figure in Tk canvas ---
         for w in self.canvas_area.winfo_children():
             w.destroy()
-        canvas = FigureCanvasTkAgg(figA, master=self.canvas_area)
+        canvas = FigureCanvasTkAgg(figRaw, master=self.canvas_area)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True)
 
-        # Optional: save both
-        # normalized
-        figA.savefig("./mouse_diary/24h_activity_w2vs3.png", bbox_inches="tight")
+        # Close figures to free memory
+        plt.close(figNorm)
+        # Keep figRaw open since it's displayed in canvas
 
 
     def bunch_save(self):

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ChangeListManager">
+    <list default="true" id="9b7c02d4-6cc0-46f6-8e9d-1aaec0f6edd9" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/BehavioralProtocol_SNrGPi-DTA.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/D1-D31_activity_levels_allmice.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/D1-D31_activity_levels_ctr_GPi_SNr.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/D1-D31_activity_levels_ctr_ctr_SNc.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/protocol_snr_gpi.drawio (1).svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/protocol_snr_gpi.drawio.svg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_activity_group1_w2_vs_w3_normalized.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_activity_group1_w2vs3.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_activity_group1_w2vs3_normalized.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_activity_group2_w2_vs_w3_normalized.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_activity_group2_w2vs3.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_activity_group2_w2vs3_normalized.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_group1_D8-14_vs_D15-21.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_group1_week2_vs_week3.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_group2_D15-21_vs_D22-28.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_group2_week2_vs_week3.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_groupA_D8-14.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_groupA_D8-14_week2.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_groupB_D15-21.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/temporal_groupB_D15-21_week2.pdf" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../p1c2_figs/week.png" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 8
+}]]></component>
+  <component name="ProjectId" id="38LagNuQ8yAVg6AxnkzGv5gZxEf" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main",
+    "last_opened_file_path": "C:/Users/schen601/Desktop/Running_Wheel_Activity_Analysis_GUI/mouse_diary_D1-24",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-3aa1da707db6-JavaScript-PY-252.27397.106" />
+        <option value="bundled-python-sdk-4e2b1448bda8-9a97661f3031-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.27397.106" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="9b7c02d4-6cc0-46f6-8e9d-1aaec0f6edd9" name="Changes" comment="" />
+      <created>1768581415373</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1768581415373</updated>
+      <workItem from="1768581416424" duration="35000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>
