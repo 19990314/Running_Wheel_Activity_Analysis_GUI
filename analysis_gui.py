@@ -750,6 +750,10 @@ class MouseActivityApp:
                     snr_mean = np.mean(data['snr_speeds'])
                     ax.axvline(snr_mean, color=snr_color, linewidth=2,
                                linestyle='--', alpha=0.7)
+                    ax.text(snr_mean, 1.0, f'{snr_mean:.1f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=snr_color, fontsize=8, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
 
                 if data['ctrl_speeds']:
                     ax.hist(data['ctrl_speeds'], bins=speed_bins,
@@ -758,6 +762,10 @@ class MouseActivityApp:
                     ctrl_mean = np.mean(data['ctrl_speeds'])
                     ax.axvline(ctrl_mean, color=ctrl_color, linewidth=2,
                                linestyle='--', alpha=0.7)
+                    ax.text(ctrl_mean, 1.0, f'{ctrl_mean:.1f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=ctrl_color, fontsize=8, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
 
                 ax.set_xlabel('Bout Speed (revs/min)', fontsize=11, fontweight='bold')
                 ax.set_ylabel('Counts', fontsize=11, fontweight='bold')
@@ -796,6 +804,10 @@ class MouseActivityApp:
                     snr_mean = np.mean(data['snr_durations'])
                     ax.axvline(snr_mean, color=snr_color, linewidth=2,
                                linestyle='--', alpha=0.7)
+                    ax.text(snr_mean, 1.0, f'{snr_mean:.1f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=snr_color, fontsize=8, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
 
                 if data['ctrl_durations']:
                     ax.hist(data['ctrl_durations'], bins=duration_bins,
@@ -804,6 +816,10 @@ class MouseActivityApp:
                     ctrl_mean = np.mean(data['ctrl_durations'])
                     ax.axvline(ctrl_mean, color=ctrl_color, linewidth=2,
                                linestyle='--', alpha=0.7)
+                    ax.text(ctrl_mean, 1.0, f'{ctrl_mean:.1f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=ctrl_color, fontsize=8, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
 
                 ax.set_xlabel('Bout Duration (minutes)', fontsize=11, fontweight='bold')
                 ax.set_ylabel('Counts', fontsize=11, fontweight='bold')
@@ -855,6 +871,10 @@ class MouseActivityApp:
                     snr_median = np.median(snr_intervals_filtered)
                     ax.axvline(snr_median, color=snr_color, linewidth=2,
                                linestyle='--', alpha=0.7)
+                    ax.text(snr_median, 1.0, f'{snr_median:.1f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=snr_color, fontsize=8, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
 
                 if ctrl_intervals_filtered:
                     ax.hist(ctrl_intervals_filtered, bins=interval_bins,
@@ -863,6 +883,10 @@ class MouseActivityApp:
                     ctrl_median = np.median(ctrl_intervals_filtered)
                     ax.axvline(ctrl_median, color=ctrl_color, linewidth=2,
                                linestyle='--', alpha=0.7)
+                    ax.text(ctrl_median, 1.0, f'{ctrl_median:.1f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=ctrl_color, fontsize=8, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
 
                 ax.set_xlabel('Inter-Bout Interval (minutes)', fontsize=11, fontweight='bold')
                 ax.set_ylabel('Counts', fontsize=11, fontweight='bold')
@@ -883,7 +907,211 @@ class MouseActivityApp:
             pdf.savefig(fig3, bbox_inches='tight')
             plt.close(fig3)
 
+            # ==================== FIGURE 4: WITHIN-BOUT ACCELERATION DISTRIBUTION ====================
+            # For each pair of consecutive active 1-min bins within a bout, compute
+            # delta_speed = speed[t] - speed[t-1]  (revs/min per minute).
+            # Negative = deceleration, positive = acceleration.
+
+            # Collect per-cohort acceleration values
+            cohort_accel_data = {}
+
+            for cohort_num in cohort_numbers:
+                cohort_info = cohort_data_dict[cohort_num]
+                df_c = cohort_info['df']
+                snr_mice_c = cohort_info['snr_mice']
+                ctrl_mice_c = cohort_info['ctrl_mice']
+
+                def collect_accelerations(mouse_list, df_src, threshold=10):
+                    accels = []
+                    for mid in mouse_list:
+                        rev_col = f"1 8 {mid} rev"
+                        if rev_col not in df_src.columns:
+                            continue
+                        for day, day_df in df_src.groupby('DateIndex'):
+                            day_df = day_df.sort_values('Bin').copy()
+                            revs = pd.to_numeric(day_df[rev_col], errors='coerce').fillna(0.0)
+                            revs = revs.where(revs >= threshold, 0.0).values
+                            active = revs > 0
+                            # Walk through consecutive active pairs
+                            for i in range(1, len(revs)):
+                                if active[i] and active[i - 1]:
+                                    accels.append(revs[i] - revs[i - 1])
+                    return accels
+
+                cohort_accel_data[cohort_num] = {
+                    'snr': collect_accelerations(snr_mice_c, df_c),
+                    'ctrl': collect_accelerations(ctrl_mice_c, df_c),
+                }
+
+            fig4, axes4 = plt.subplots(2, 2, figsize=(14, 12))
+            axes4 = axes4.flatten()
+
+            # Symmetric bins centred on 0, in steps of 2 rev/min
+            accel_bins = np.arange(-80, 82, 2)
+
+            for idx, cohort_num in enumerate(cohort_numbers):
+                if idx >= 4:
+                    break
+
+                ax = axes4[idx]
+                adata = cohort_accel_data[cohort_num]
+
+                if adata['snr']:
+                    ax.hist(adata['snr'], bins=accel_bins,
+                            histtype='step', edgecolor=snr_color, linewidth=2,
+                            label=f"SNr-DTA (n={len(adata['snr'])} transitions)")
+                    snr_mean_a = np.mean(adata['snr'])
+                    ax.axvline(snr_mean_a, color=snr_color, linewidth=2, linestyle='--', alpha=0.7)
+                    ax.text(snr_mean_a, 1.0, f'{snr_mean_a:.2f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=snr_color, fontsize=8, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
+
+                if adata['ctrl']:
+                    ax.hist(adata['ctrl'], bins=accel_bins,
+                            histtype='step', edgecolor=ctrl_color, linewidth=2,
+                            label=f"Control (n={len(adata['ctrl'])} transitions)")
+                    ctrl_mean_a = np.mean(adata['ctrl'])
+                    ax.axvline(ctrl_mean_a, color=ctrl_color, linewidth=2, linestyle='--', alpha=0.7)
+                    ax.text(ctrl_mean_a, 1.0, f'{ctrl_mean_a:.2f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=ctrl_color, fontsize=8, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
+
+                ax.axvline(0, color='black', linewidth=1.0, linestyle='-', alpha=0.4)
+                ax.set_xlabel('Δ Speed between consecutive active bins (revs/min)', fontsize=11, fontweight='bold')
+                ax.set_ylabel('Counts', fontsize=11, fontweight='bold')
+                ax.set_title(f'Cohort {cohort_num}', fontsize=12, fontweight='bold')
+                ax.legend(loc='best', fontsize=9, frameon=False)
+                ax.grid(True, alpha=0.3, linestyle='--')
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+
+            for idx in range(len(cohort_numbers), 4):
+                axes4[idx].axis('off')
+
+            fig4.suptitle(f'Within-Bout Acceleration Distribution (Days {DAY_MIN}-{DAY_MAX})\n'
+                          f'Δ speed between consecutive 1-min active bins; negative = deceleration',
+                          fontsize=14, fontweight='bold')
+            fig4.tight_layout(rect=[0, 0, 1, 0.96])
+            pdf.savefig(fig4, bbox_inches='tight')
+            plt.close(fig4)
+
         print(f"\nSaved multi-cohort summary: {pdf_path}")
+
+        # ==================== SUMMARY CSV: per-mouse light/dark ratios + Lomb-Scargle ====================
+        from scipy import signal as scipy_signal
+
+        def lomb_scargle_period(times, values, min_period=20, max_period=28):
+            """Reused from plot_double_plotted_actogram. Returns (tau, power, amplitude, false_alarm_prob)."""
+            mask = ~np.isnan(np.array(values, dtype=float))
+            times_clean = np.array(times, dtype=float)[mask]
+            values_clean = np.array(values, dtype=float)[mask]
+            if len(times_clean) < 24:
+                return np.nan, np.nan, np.nan, np.nan
+            frequencies = np.linspace(1 / max_period, 1 / min_period, 1000)
+            try:
+                ls_power = scipy_signal.lombscargle(
+                    times_clean, values_clean - np.mean(values_clean),
+                    frequencies * 2 * np.pi, normalize=True)
+                peak_idx = np.argmax(ls_power)
+                tau = 1.0 / frequencies[peak_idx]
+                power = ls_power[peak_idx]
+                amplitude = np.sqrt(2 * power) * np.std(values_clean)
+                M = len(frequencies)
+                false_alarm_prob = 1 - (1 - np.exp(-power)) ** M
+                return tau, power, amplitude, false_alarm_prob
+            except Exception as e:
+                print(f"Lomb-Scargle error: {e}")
+                return np.nan, np.nan, np.nan, np.nan
+
+        # Light = 06:00–18:00  (hours 6..17),  Dark = 18:00–06:00
+        LIGHT_HOURS = set(range(6, 18))   # 6,7,...,17
+        threshold = 10
+        summary_rows = []
+
+        for cohort_num in cohort_numbers:
+            cohort_info = cohort_data_dict[cohort_num]
+            df_c = cohort_info['df'].copy()
+            all_mice = cohort_info['snr_mice'] + cohort_info['ctrl_mice']
+
+            for mid in all_mice:
+                rev_col = f"1 8 {mid} rev"
+                if rev_col not in df_c.columns:
+                    continue
+
+                label = cohort_info['labels'][int(mid) - 1] if int(mid) - 1 < len(cohort_info['labels']) else f"Mouse {mid}"
+
+                # Split rows into light / dark based on hour of Bin timestamp
+                mouse_df = df_c[['Bin', 'DateIndex', rev_col]].copy()
+                mouse_df[rev_col] = pd.to_numeric(mouse_df[rev_col], errors='coerce').fillna(0.0)
+                mouse_df['hour'] = mouse_df['Bin'].dt.hour
+
+                light_df = mouse_df[mouse_df['hour'].isin(LIGHT_HOURS)]
+                dark_df  = mouse_df[~mouse_df['hour'].isin(LIGHT_HOURS)]
+
+                def bout_stats_from_df(sub_df, rc, thr):
+                    """Return (n_bouts, mean_speed) pooled across all days in sub_df."""
+                    n_bouts = 0
+                    speeds = []
+                    for day, day_data in sub_df.groupby('DateIndex'):
+                        day_data = day_data.sort_values('Bin')
+                        revs = day_data[rc].where(day_data[rc] >= thr, 0.0)
+                        active = revs > 0
+                        if not active.any():
+                            continue
+                        run_id = (active != active.shift(fill_value=False)).cumsum()
+                        for _, grp in revs.groupby(run_id):
+                            if active.loc[grp.index].iloc[0]:
+                                n_bouts += 1
+                                speeds.append(grp.mean())
+                    mean_speed = float(np.mean(speeds)) if speeds else np.nan
+                    return n_bouts, mean_speed
+
+                n_light, spd_light = bout_stats_from_df(light_df,  rev_col, threshold)
+                n_dark,  spd_dark  = bout_stats_from_df(dark_df,   rev_col, threshold)
+
+                count_ratio = (n_dark  / n_light)  if n_light  > 0 else np.nan
+                speed_ratio = (spd_dark / spd_light) if (spd_light and not np.isnan(spd_light) and spd_light > 0) else np.nan
+
+                # --- Lomb-Scargle on the full minute-resolution rev series (days 8-21) ---
+                mouse_full = df_c[['Bin', rev_col]].copy()
+                mouse_full[rev_col] = pd.to_numeric(mouse_full[rev_col], errors='coerce').fillna(0.0)
+                mouse_full = mouse_full.sort_values('Bin')
+                start_time = mouse_full['Bin'].min()
+                mouse_full['HoursFromStart'] = (mouse_full['Bin'] - start_time).dt.total_seconds() / 3600.0
+
+                tau, ls_power, ls_amplitude, ls_fap = lomb_scargle_period(
+                    mouse_full['HoursFromStart'].values,
+                    mouse_full[rev_col].values
+                )
+
+                summary_rows.append({
+                    'Cohort':                   cohort_num,
+                    'MouseID':                  mid,
+                    'MouseLabel':               label,
+                    'BoutCount_Light':          n_light,
+                    'BoutCount_Dark':           n_dark,
+                    'BoutCount_DarkLightRatio': round(count_ratio, 3) if not np.isnan(count_ratio) else np.nan,
+                    'BoutSpeed_Light_revPerMin':  round(spd_light, 2) if not np.isnan(spd_light) else np.nan,
+                    'BoutSpeed_Dark_revPerMin':   round(spd_dark,  2) if not np.isnan(spd_dark)  else np.nan,
+                    'BoutSpeed_DarkLightRatio':  round(speed_ratio, 3) if not np.isnan(speed_ratio) else np.nan,
+                    'Tau_hours':                round(tau,        2) if not np.isnan(tau)        else np.nan,
+                    'LS_Power':                 round(ls_power,   4) if not np.isnan(ls_power)   else np.nan,
+                    'LS_Amplitude':             round(ls_amplitude, 2) if not np.isnan(ls_amplitude) else np.nan,
+                    'LS_FalseAlarmProb':        round(ls_fap,     4) if not np.isnan(ls_fap)     else np.nan,
+                })
+
+        if summary_rows:
+            summary_df = pd.DataFrame(summary_rows).sort_values(['Cohort', 'MouseID'])
+            csv_dir = os.path.dirname(os.path.abspath(pdf_path))
+            csv_filename = f"Multi_Cohort_{cohort_str}_LightDark_Circadian_Summary_D{DAY_MIN}-{DAY_MAX}.csv"
+            csv_path = os.path.join(csv_dir, csv_filename)
+            summary_df.to_csv(csv_path, index=False)
+            print(f"Saved per-mouse summary CSV: {csv_path}")
+        else:
+            csv_path = "N/A"
+            print("Warning: No summary rows generated for CSV.")
 
         # Print summary statistics
         print("\n" + "=" * 60)
@@ -911,11 +1139,208 @@ class MouseActivityApp:
 
         print("=" * 60 + "\n")
 
+        # ======================================================================
+        # COMBINED SINGLE-PANEL PDF
+        # One figure per metric (Speed / Duration / IBI / Acceleration), each
+        # showing ALL cohorts overlaid on the same axes.
+        # SNr-DTA: solid green shades per cohort; Control: solid gray shades.
+        # ======================================================================
+
+        # One shade of green per cohort (SNr) and one shade of gray per cohort (Ctrl)
+        snr_cohort_colors  = [(0.25, 0.65, 0.25), (0.10, 0.45, 0.10),
+                              (0.55, 0.80, 0.30), (0.15, 0.55, 0.45)]
+        ctrl_cohort_colors = [(0.30, 0.30, 0.30), (0.55, 0.55, 0.55),
+                              (0.15, 0.15, 0.15), (0.65, 0.60, 0.50)]
+
+        combined_pdf_path = pdf_path.replace(
+            f"_Bout_Statistics_D{DAY_MIN}-{DAY_MAX}.pdf",
+            f"_AllCohorts_Combined_D{DAY_MIN}-{DAY_MAX}.pdf")
+
+        def _draw_combined_panel(ax, cohort_numbers, cohort_bout_data,
+                                 snr_key, ctrl_key, bins_arr,
+                                 xlabel, use_log_x=False,
+                                 use_median_line=False):
+            """
+            Draw overlaid histograms for all cohorts onto ax.
+            snr_key / ctrl_key  : key into cohort_bout_data[c] for the data list.
+            bins_arr            : bin edges.
+            use_median_line     : use median instead of mean for the vline label.
+            """
+            for c_idx, c_num in enumerate(cohort_numbers):
+                data = cohort_bout_data[c_num]
+                sc   = snr_cohort_colors[c_idx % len(snr_cohort_colors)]
+                cc   = ctrl_cohort_colors[c_idx % len(ctrl_cohort_colors)]
+
+                snr_vals = data[snr_key]
+                ctrl_vals = data[ctrl_key]
+
+                if snr_key == 'snr_intervals':
+                    snr_vals  = [x for x in snr_vals  if x >= 1]
+                if ctrl_key == 'ctrl_intervals':
+                    ctrl_vals = [x for x in ctrl_vals if x >= 1]
+
+                if snr_vals:
+                    ax.hist(snr_vals, bins=bins_arr, histtype='step',
+                            edgecolor=sc, linewidth=1.8,
+                            label=f"C{c_num} SNr-DTA (n={len(snr_vals)})")
+                    stat = np.median(snr_vals) if use_median_line else np.mean(snr_vals)
+                    ax.axvline(stat, color=sc, linewidth=1.5, linestyle='--', alpha=0.8)
+                    ax.text(stat, 1.0, f'{stat:.1f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=sc, fontsize=7, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
+
+                if ctrl_vals:
+                    ax.hist(ctrl_vals, bins=bins_arr, histtype='step',
+                            edgecolor=cc, linewidth=1.8, linestyle='--',
+                            label=f"C{c_num} Control (n={len(ctrl_vals)})")
+                    stat = np.median(ctrl_vals) if use_median_line else np.mean(ctrl_vals)
+                    ax.axvline(stat, color=cc, linewidth=1.5, linestyle=':', alpha=0.8)
+                    ax.text(stat, 1.0, f'{stat:.1f}',
+                            transform=ax.get_xaxis_transform(),
+                            color=cc, fontsize=7, fontweight='bold',
+                            ha='left', va='bottom', rotation=90)
+
+            if use_log_x:
+                ax.set_xscale('log')
+                ax.set_xlim(1, None)
+            ax.set_xlabel(xlabel, fontsize=11, fontweight='bold')
+            ax.set_ylabel('Counts', fontsize=11, fontweight='bold')
+            ax.legend(loc='best', fontsize=7, frameon=False, ncol=2)
+            ax.grid(True, alpha=0.3, linestyle='--')
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+        # Build IBI bins dynamically (need max across all cohorts)
+        all_intervals = []
+        for c_num in cohort_numbers:
+            all_intervals += [x for x in cohort_bout_data[c_num]['snr_intervals'] if x >= 1]
+            all_intervals += [x for x in cohort_bout_data[c_num]['ctrl_intervals'] if x >= 1]
+        max_ibi = max(all_intervals) if all_intervals else 1440
+        ibi_bins = np.concatenate([
+            np.arange(1, 10, 0.5),
+            np.arange(10, 60, 5),
+            np.logspace(np.log10(60), np.log10(min(max_ibi + 1, 1440)), 20)
+        ])
+
+        with PdfPages(combined_pdf_path) as cpdf:
+
+            # Figure 1: Bout Speed – all cohorts combined
+            fig_cs, ax_cs = plt.subplots(figsize=(10, 6))
+            _draw_combined_panel(ax_cs, cohort_numbers, cohort_bout_data,
+                                 'snr_speeds', 'ctrl_speeds',
+                                 np.arange(10, 160, 5),
+                                 'Bout Speed (revs/min)')
+            fig_cs.suptitle(f'Bout Speed – All Cohorts (Days {DAY_MIN}-{DAY_MAX})',
+                            fontsize=13, fontweight='bold')
+            fig_cs.tight_layout(rect=[0, 0, 1, 0.96])
+            cpdf.savefig(fig_cs, bbox_inches='tight')
+            plt.close(fig_cs)
+
+            # Figure 2: Bout Duration – all cohorts combined
+            fig_cd, ax_cd = plt.subplots(figsize=(10, 6))
+            _draw_combined_panel(ax_cd, cohort_numbers, cohort_bout_data,
+                                 'snr_durations', 'ctrl_durations',
+                                 np.arange(1, 51, 1),
+                                 'Bout Duration (minutes)')
+            ax_cd.set_xlim(1, 50)
+            fig_cd.suptitle(f'Bout Duration – All Cohorts (Days {DAY_MIN}-{DAY_MAX})',
+                            fontsize=13, fontweight='bold')
+            fig_cd.tight_layout(rect=[0, 0, 1, 0.96])
+            cpdf.savefig(fig_cd, bbox_inches='tight')
+            plt.close(fig_cd)
+
+            # Figure 3: Inter-Bout Interval – all cohorts combined (log x, median line)
+            fig_ci, ax_ci = plt.subplots(figsize=(10, 6))
+            _draw_combined_panel(ax_ci, cohort_numbers, cohort_bout_data,
+                                 'snr_intervals', 'ctrl_intervals',
+                                 ibi_bins,
+                                 'Inter-Bout Interval (minutes)',
+                                 use_log_x=True, use_median_line=True)
+            fig_ci.suptitle(f'Inter-Bout Interval – All Cohorts (Days {DAY_MIN}-{DAY_MAX})',
+                            fontsize=13, fontweight='bold')
+            fig_ci.tight_layout(rect=[0, 0, 1, 0.96])
+            cpdf.savefig(fig_ci, bbox_inches='tight')
+            plt.close(fig_ci)
+
+            # Figure 4: Within-Bout Acceleration – all cohorts combined
+            # Re-collect acceleration data using cohort_data_dict (already in scope)
+            accel_data_combined = {}
+            for c_num in cohort_numbers:
+                df_c2 = cohort_data_dict[c_num]['df']
+
+                def _collect_acc(mouse_list, df_src, thr=10):
+                    acc = []
+                    for mid2 in mouse_list:
+                        rc2 = f"1 8 {mid2} rev"
+                        if rc2 not in df_src.columns:
+                            continue
+                        for _, d_df in df_src.groupby('DateIndex'):
+                            d_df = d_df.sort_values('Bin')
+                            rv = pd.to_numeric(d_df[rc2], errors='coerce').fillna(0.0)
+                            rv = rv.where(rv >= thr, 0.0).values
+                            act = rv > 0
+                            for ii in range(1, len(rv)):
+                                if act[ii] and act[ii - 1]:
+                                    acc.append(rv[ii] - rv[ii - 1])
+                    return acc
+
+                accel_data_combined[c_num] = {
+                    'snr':  _collect_acc(cohort_data_dict[c_num]['snr_mice'],  df_c2),
+                    'ctrl': _collect_acc(cohort_data_dict[c_num]['ctrl_mice'], df_c2),
+                }
+
+            fig_ca, ax_ca = plt.subplots(figsize=(10, 6))
+            accel_bins_c = np.arange(-80, 82, 2)
+            for c_idx, c_num in enumerate(cohort_numbers):
+                sc = snr_cohort_colors[c_idx % len(snr_cohort_colors)]
+                cc = ctrl_cohort_colors[c_idx % len(ctrl_cohort_colors)]
+                snr_a = accel_data_combined[c_num]['snr']
+                ctrl_a = accel_data_combined[c_num]['ctrl']
+                if snr_a:
+                    ax_ca.hist(snr_a, bins=accel_bins_c, histtype='step',
+                               edgecolor=sc, linewidth=1.8,
+                               label=f"C{c_num} SNr-DTA (n={len(snr_a)})")
+                    sm = np.mean(snr_a)
+                    ax_ca.axvline(sm, color=sc, linewidth=1.5, linestyle='--', alpha=0.8)
+                    ax_ca.text(sm, 1.0, f'{sm:.2f}',
+                               transform=ax_ca.get_xaxis_transform(),
+                               color=sc, fontsize=7, fontweight='bold',
+                               ha='left', va='bottom', rotation=90)
+                if ctrl_a:
+                    ax_ca.hist(ctrl_a, bins=accel_bins_c, histtype='step',
+                               edgecolor=cc, linewidth=1.8, linestyle='--',
+                               label=f"C{c_num} Control (n={len(ctrl_a)})")
+                    cm = np.mean(ctrl_a)
+                    ax_ca.axvline(cm, color=cc, linewidth=1.5, linestyle=':', alpha=0.8)
+                    ax_ca.text(cm, 1.0, f'{cm:.2f}',
+                               transform=ax_ca.get_xaxis_transform(),
+                               color=cc, fontsize=7, fontweight='bold',
+                               ha='left', va='bottom', rotation=90)
+
+            ax_ca.axvline(0, color='black', linewidth=1.0, linestyle='-', alpha=0.4)
+            ax_ca.set_xlabel('Δ Speed between consecutive active bins (revs/min)',
+                             fontsize=11, fontweight='bold')
+            ax_ca.set_ylabel('Counts', fontsize=11, fontweight='bold')
+            ax_ca.legend(loc='best', fontsize=7, frameon=False, ncol=2)
+            ax_ca.grid(True, alpha=0.3, linestyle='--')
+            ax_ca.spines['top'].set_visible(False)
+            ax_ca.spines['right'].set_visible(False)
+            fig_ca.suptitle(f'Within-Bout Acceleration – All Cohorts (Days {DAY_MIN}-{DAY_MAX})',
+                            fontsize=13, fontweight='bold')
+            fig_ca.tight_layout(rect=[0, 0, 1, 0.96])
+            cpdf.savefig(fig_ca, bbox_inches='tight')
+            plt.close(fig_ca)
+
+        print(f"Saved combined single-panel PDF: {combined_pdf_path}")
+
         messagebox.showinfo("Complete",
                             f"Generated multi-cohort bout statistics summary\n"
                             f"Cohorts: {', '.join([str(c) for c in cohort_numbers])}\n"
                             f"Days: {DAY_MIN}-{DAY_MAX}\n"
-                            f"Saved to: {pdf_path}")
+                            f"PDF (4 figures, 2×2): {pdf_path}\n"
+                            f"PDF (4 figures, combined): {combined_pdf_path}\n"
+                            f"CSV (light/dark + circadian): {csv_path}")
 
 
     def Bout_averaged_Rev_per_day(self):
@@ -2426,6 +2851,272 @@ class MouseActivityApp:
             results_df.to_csv(csv_path, index=False)
             print(f"Saved circadian parameters: {csv_path}")
 
+        # ======================================================================
+        # MULTI-COHORT COMBINED ACTOGRAM
+        # Ask user to select additional cohort files; pool all cohorts into one
+        # figure with the same 3-panel layout (actogram / profile / LS tau bar).
+        # SNr-DTA mice → red family; Control → blue family across all cohorts.
+        # ======================================================================
+        from tkinter import filedialog as _fd
+
+        extra_paths = _fd.askopenfilenames(
+            title="Select ALL cohort files for combined actogram (cancel to skip)",
+            filetypes=[("Data Files", "*.csv *.xls *.xlsx")]
+        )
+
+        if extra_paths:
+            # cohort label colours: one shade of red / blue per cohort
+            cohort_red_shades  = [(0.80, 0.10, 0.10), (0.90, 0.35, 0.15),
+                                  (0.75, 0.20, 0.40), (0.95, 0.50, 0.30)]
+            cohort_blue_shades = [(0.10, 0.25, 0.75), (0.20, 0.50, 0.85),
+                                  (0.10, 0.60, 0.70), (0.30, 0.40, 0.90)]
+
+            # Storage across all cohorts
+            all_snr_hourly   = []   # each element: 24-element hourly array (one mouse×day)
+            all_ctrl_hourly  = []
+            all_snr_tau      = []   # Lomb-Scargle tau per SNr mouse
+            all_ctrl_tau     = []
+            combined_mouse_day_data  = {}  # (cohort, mid) -> {day: hourly_array}
+            combined_mouse_colors    = {}
+            combined_mouse_labels    = {}
+            combined_snr_keys        = []
+            combined_ctrl_keys       = []
+
+            cohort_order = []  # track loading order for colour assignment
+
+            for fpath in sorted(extra_paths):
+                try:
+                    # ---- infer cohort number ----
+                    if fpath.endswith(".xls") or fpath.endswith(".csv"):
+                        c_num = int(fpath[-5:-4])
+                    else:
+                        c_num = int(fpath[-6:-5])
+
+                    if c_num == 1:
+                        c_labels = ["SC01(Control)", "LM45(SNr-DTA)", "SC02(GPi-DTA)"]
+                    elif c_num == 2:
+                        c_labels = ["SC04(SNr-DTA)", "SC05(SNr-DTA)", "SC06(SNr-DTA)",
+                                    "SC07(Control)", "SC08(Control)"]
+                    elif c_num == 3:
+                        c_labels = ["SC09(SNr-DTA)", "SC10(SNr-DTA)", "SC11(SNr-DTA)",
+                                    "SC12(SNr-DTA)", "SC13(Control)", "SC14(Control)", "SC15(Control)"]
+                    elif c_num == 4:
+                        c_labels = ["SC29(SNr-DTA)", "SC30(SNr-DTA)", "SC31(SNr-DTA)",
+                                    "SC32(SNr-DTA)", "SC33(Control)", "SC34(Control)", "SC35(Control)"]
+                    else:
+                        c_labels = []
+
+                    # ---- load df ----
+                    if fpath.endswith(".xls") or fpath.endswith(".xlsx"):
+                        try:
+                            c_df = pd.read_csv(fpath, skiprows=10, sep="\t")
+                        except Exception:
+                            c_df = pd.read_csv(fpath, skiprows=10)
+                    else:
+                        c_df = pd.read_csv(fpath, skiprows=10)
+
+                    c_df = c_df.dropna(how='all').dropna(axis=1, how='all')
+                    c_df.columns = [col.strip() for col in c_df.columns]
+                    if 'Bin' not in c_df.columns:
+                        continue
+                    c_df['Bin'] = pd.to_datetime(c_df['Bin'], format="mixed", errors='coerce')
+                    c_df = c_df.dropna(subset=['Bin'])
+
+                    ref_d = c_df['Bin'].dt.normalize().min().date()
+                    if c_num == 3:
+                        from datetime import timedelta as _td
+                        ref_d = ref_d - _td(days=8)
+                    c_df['DateIndex'] = (c_df['Bin'].dt.normalize() - pd.Timestamp(ref_d)).dt.days
+
+                    c_mids = sorted(set(col.split()[2] for col in c_df.columns if col.startswith('1 8')))
+                    c_mids = [int(m) for m in c_mids if str(m).isdigit()]
+
+                    # excluded mice same rules as generate_bout_statistics_summary_multi_cohort
+                    for skip in ([3, 5, 6, 7] if c_num == 1 else
+                                 [4]           if c_num == 2 else
+                                 [7]           if c_num == 4 else []):
+                        if skip in c_mids:
+                            c_mids.remove(skip)
+
+                    c_idx = len(cohort_order)
+                    cohort_order.append(c_num)
+                    snr_col = cohort_red_shades[c_idx % len(cohort_red_shades)]
+                    ctrl_col = cohort_blue_shades[c_idx % len(cohort_blue_shades)]
+
+                    for mid in c_mids:
+                        rev_col = f"1 8 {mid} rev"
+                        if rev_col not in c_df.columns:
+                            continue
+                        lbl = c_labels[mid - 1] if mid - 1 < len(c_labels) else f"C{c_num}M{mid}"
+                        is_snr = "SNr" in lbl or "DTA" in lbl
+                        key = (c_num, mid)
+
+                        m_df = c_df[['Bin', 'DateIndex', rev_col]].copy()
+                        m_df[rev_col] = pd.to_numeric(m_df[rev_col], errors='coerce').fillna(0.0)
+                        m_df['HourOfDay'] = m_df['Bin'].dt.hour + m_df['Bin'].dt.minute / 60
+
+                        combined_mouse_day_data[key] = {}
+                        for day in sorted(m_df['DateIndex'].unique()):
+                            d_df = m_df[m_df['DateIndex'] == day]
+                            h_arr = np.zeros(24)
+                            for h in range(24):
+                                mask_h = (d_df['HourOfDay'] >= h) & (d_df['HourOfDay'] < h + 1)
+                                if mask_h.any():
+                                    h_arr[h] = d_df.loc[mask_h, rev_col].mean()
+                            combined_mouse_day_data[key][int(day)] = h_arr
+                            if is_snr:
+                                all_snr_hourly.append(h_arr)
+                            else:
+                                all_ctrl_hourly.append(h_arr)
+
+                        combined_mouse_colors[key] = snr_col if is_snr else ctrl_col
+                        combined_mouse_labels[key] = lbl
+
+                        if is_snr:
+                            combined_snr_keys.append(key)
+                        else:
+                            combined_ctrl_keys.append(key)
+
+                        # Lomb-Scargle tau
+                        m_df2 = m_df.sort_values('Bin')
+                        m_df2['HoursFromStart'] = (m_df2['Bin'] - m_df2['Bin'].min()).dt.total_seconds() / 3600.0
+                        tau_c, _, _, _ = lomb_scargle_period(
+                            m_df2['HoursFromStart'].values, m_df2[rev_col].values)
+                        if not np.isnan(tau_c):
+                            if is_snr:
+                                all_snr_tau.append(tau_c)
+                            else:
+                                all_ctrl_tau.append(tau_c)
+
+                    print(f"  Combined actogram: loaded cohort {c_num}")
+                except Exception as e_c:
+                    print(f"  Combined actogram: skipped {fpath} ({e_c})")
+                    continue
+
+            if combined_mouse_day_data:
+                all_c_days = sorted(set(
+                    day for data in combined_mouse_day_data.values() for day in data.keys()))
+
+                fig_all = plt.figure(figsize=(16, 14))
+                gs_all  = fig_all.add_gridspec(3, 1, height_ratios=[3, 1, 1], hspace=0.38)
+
+                # ---- Panel 1: stacked actogram (all cohorts, SNr first then Ctrl) ----
+                ax_act = fig_all.add_subplot(gs_all[0])
+                y_off, ytick_pos, ytick_lbl = 0, [], []
+
+                for group_keys, sep_label in [(combined_snr_keys, "SNr-DTA"),
+                                              (combined_ctrl_keys, "Control")]:
+                    group_start = y_off
+                    for key in group_keys:
+                        if key not in combined_mouse_day_data:
+                            continue
+                        color = combined_mouse_colors[key]
+                        lbl   = combined_mouse_labels[key]
+                        n_days_plotted = 0
+                        max_act = max(
+                            (np.max(combined_mouse_day_data[key][d])
+                             for d in combined_mouse_day_data[key] if len(combined_mouse_day_data[key][d]) > 0),
+                            default=1.0)
+                        for day in all_c_days:
+                            if day not in combined_mouse_day_data[key]:
+                                continue
+                            h_arr = combined_mouse_day_data[key][day]
+                            norm  = h_arr / max_act * 0.8 if max_act > 0 else h_arr * 0
+                            for h in range(24):
+                                if norm[h] > 0:
+                                    ax_act.bar(h, norm[h], bottom=y_off,
+                                               width=1, color=color, alpha=0.65, edgecolor='none')
+                            y_off += 1
+                            n_days_plotted += 1
+                        if n_days_plotted:
+                            ytick_pos.append(y_off - n_days_plotted / 2)
+                            ytick_lbl.append(lbl)
+
+                    if group_keys and sep_label == "SNr-DTA" and combined_ctrl_keys:
+                        ax_act.axhline(y_off, color='black', linewidth=1.5, linestyle='--', alpha=0.6)
+                        y_off += 0.5
+
+                ax_act.set_xlim(-0.5, 24.5)
+                ax_act.set_ylim(0, y_off + 0.5)
+                ax_act.set_xticks(np.arange(0, 25, 3))
+                ax_act.set_yticks(ytick_pos)
+                ax_act.set_yticklabels(ytick_lbl, fontsize=7)
+                ax_act.set_xlabel('Time (hours)', fontsize=12, fontweight='bold')
+                ax_act.set_ylabel('Mouse', fontsize=12, fontweight='bold')
+                ax_act.axvspan(18, 24, alpha=0.12, color='gray', zorder=0)
+                ax_act.axvspan(0,  6,  alpha=0.12, color='gray', zorder=0)
+                ax_act.grid(True, axis='x', alpha=0.3, linestyle='--')
+                ax_act.set_title(
+                    f'All Cohorts Combined – Actogram  '
+                    f'(Days {min(all_c_days)}–{max(all_c_days)})',
+                    fontsize=13, fontweight='bold', pad=12)
+
+                # ---- Panel 2: pooled group mean ± SEM hourly profile ----
+                ax_prof = fig_all.add_subplot(gs_all[1])
+                hours_x = np.arange(24)
+
+                for hourly_list, col, grp_label in [
+                        (all_snr_hourly,  (0.80, 0.10, 0.10), f'SNr-DTA (n={len(combined_snr_keys)} mice)'),
+                        (all_ctrl_hourly, (0.10, 0.25, 0.75), f'Control (n={len(combined_ctrl_keys)} mice)')]:
+                    if not hourly_list:
+                        continue
+                    arr = np.array(hourly_list)
+                    mn  = np.nanmean(arr, axis=0)
+                    sem = np.nanstd(arr, axis=0) / np.sqrt(len(hourly_list))
+                    ax_prof.plot(hours_x, mn, color=col, linewidth=2.5,
+                                 label=grp_label, marker='o', markersize=3)
+                    ax_prof.fill_between(hours_x, mn - sem, mn + sem,
+                                         alpha=0.22, color=col, linewidth=0)
+
+                ax_prof.set_xlim(0, 23)
+                ax_prof.set_xticks(np.arange(0, 25, 3))
+                ax_prof.set_xlabel('Hour of Day', fontsize=11, fontweight='bold')
+                ax_prof.set_ylabel('Revs/hour\n(mean±SEM)', fontsize=11, fontweight='bold')
+                ax_prof.set_title('Pooled Average Daily Activity Profile', fontsize=12, fontweight='bold')
+                ax_prof.axvspan(18, 24, alpha=0.12, color='gray', zorder=0)
+                ax_prof.axvspan(0,  6,  alpha=0.12, color='gray', zorder=0)
+                ax_prof.grid(True, alpha=0.3, linestyle='--')
+                ax_prof.legend(loc='best', fontsize=10, frameon=False)
+                ax_prof.spines['top'].set_visible(False)
+                ax_prof.spines['right'].set_visible(False)
+
+                # ---- Panel 3: tau bar plot (mean ± SEM per group) ----
+                ax_tau = fig_all.add_subplot(gs_all[2])
+                rng2 = np.random.default_rng(42)
+                bar_groups = []
+                if all_snr_tau:
+                    bar_groups.append((all_snr_tau,  (0.80, 0.10, 0.10), 'SNr-DTA'))
+                if all_ctrl_tau:
+                    bar_groups.append((all_ctrl_tau, (0.10, 0.25, 0.75), 'Control'))
+
+                for bx, (tau_vals, bcol, blbl) in enumerate(bar_groups):
+                    bm  = np.mean(tau_vals)
+                    bse = np.std(tau_vals, ddof=1) / np.sqrt(len(tau_vals)) if len(tau_vals) > 1 else 0
+                    ax_tau.bar(bx, bm, yerr=bse, color=bcol, alpha=0.75, capsize=5,
+                               edgecolor='black', linewidth=1.0, width=0.5)
+                    jit = rng2.normal(0, 0.07, size=len(tau_vals))
+                    ax_tau.scatter(np.full(len(tau_vals), bx) + jit, tau_vals,
+                                   s=28, color='black', alpha=0.7, zorder=3)
+
+                ax_tau.set_xticks(range(len(bar_groups)))
+                ax_tau.set_xticklabels([g[2] for g in bar_groups], fontsize=11)
+                ax_tau.set_ylabel('Circadian Period τ (hours)', fontsize=11, fontweight='bold')
+                ax_tau.set_title('Lomb-Scargle Dominant Period (All Cohorts)', fontsize=12, fontweight='bold')
+                ax_tau.axhline(24, color='gray', linewidth=1.2, linestyle='--', alpha=0.6, label='24 h')
+                ax_tau.legend(fontsize=9, frameon=False)
+                ax_tau.spines['top'].set_visible(False)
+                ax_tau.spines['right'].set_visible(False)
+                ax_tau.grid(axis='y', alpha=0.3, linestyle='--')
+
+                fig_all.tight_layout()
+                combined_pdf = "./AllCohorts_Combined_Actogram.pdf"
+                fig_all.savefig(combined_pdf, dpi=300, bbox_inches='tight')
+                plt.close(fig_all)
+                print(f"Saved combined actogram: {combined_pdf}")
+            else:
+                print("Combined actogram: no data loaded, skipping.")
+
+        if circadian_results:
             messagebox.showinfo("Complete",
                                 f"Generated cohort actogram with {len(selected_mice)} mice\n"
                                 f"Saved to: {pdf_path}")
