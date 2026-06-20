@@ -1,0 +1,29 @@
+------------------------------Figure 1------------------------------------
+Scatter plot 24h:
+1. Collect all 30-min activity vectors from all mouse-days in that group.
+2. For each 30-min bin, calculate the group mean.
+3. Calculate SEM across all mouse-day vectors.
+4. Plot mean ± SEM.
+
+
+------------------------------Figure 2------------------------------------ 
+Actogram:
+1. Read minute-level wheel revolution data from:
+   1 8 {mouse_id} rev
+2. Convert timestamp to clock time:
+   HourOfDay = hour + minute / 60 + second / 3600
+3. Split 24 h into 30-min bins.
+4. For each 30-min bin, calculate:
+   mean rev/min within that bin
+5. Store this as one binned activity vector for that mouse-day.
+
+So each row in the actogram is:
+one mouse × one day
+
+Each bar in that row is:
+mean rev/min during that 30-min clock-time window
+
+------------------------------------------------------------
+Flexible changes:
+bin scale, change:
+ACTOGRAM_BIN_MINUTES = 10

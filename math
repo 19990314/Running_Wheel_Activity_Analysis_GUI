@@ -1,0 +1,16 @@
+bout metrics
+BoutCount_Light_06-18
+BoutCount_Dark_18-06
+BoutCount_Light06-18FractionOfLightPlusDark
+BoutSpeed_Light_06-18_revPerMin_mean
+BoutSpeed_Dark_18-06_revPerMin_mean
+BoutSpeed_Light06-18FractionOfLightPlusDark_mean
+BoutSpeed_Light_06-18_revPerMin_median
+BoutSpeed_Dark_18-06_revPerMin_median
+BoutDuration_Light_06-18_minute_mean
+BoutDuration_Dark_18-06_minute_mean
+BoutDuration_Light_06-18_minute_median
+BoutDuration_Dark_18-06_minute_median
+1. detect full-day bouts first
+2. assign each bout to light/dark by bout start time
+3. calculate speed/duration/count from the complete bout

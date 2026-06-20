@@ -1,0 +1,121 @@
+Bout activity analysis note
+
+============================parameters==============================
+Day range: Days 8–21
+Light phase: 06:00–18:00
+Dark phase: 18:00–06:00
+Bout threshold: rev/min >= 10 defines active wheel running
+Bout definition: consecutive active minutes -> a bout
+
+
+============================calculations==============================
+--------------------------------------
+1. Wheel activity: phase-normalized revolutions
+
+For each mouse:
+
+1. Sum wheel revolutions in each time bin across all analyzed days.
+2. Separate bins into light phase and dark phase.
+3. Within each phase, calculate:
+
+   activity percentage in bin =
+   total revolutions in that bin / total revolutions in that phase × 100
+
+4. Plot mouse-level percentages.
+5. Calculate group mean ± SEM across mice.
+--------------------------------------
+2. Wheel activity: 24 h-normalized revolutions
+
+For each mouse:
+
+1. Sum wheel revolutions in each time bin across all analyzed days.
+2. Sum total revolutions across the full 24 h cycle.
+3. Calculate:
+
+   activity percentage in bin =
+   total revolutions in that bin / total 24 h revolutions × 100
+
+4. Plot mouse-level percentages.
+5. Calculate group mean ± SEM across mice.
+
+Interpretation:
+
+--------------------------------------
+3. Bout count: raw averaged count
+
+For each mouse:
+
+1. Detect bouts as consecutive active minutes.
+2. Assign each bout to the bin where the bout starts.
+3. Count the number of bouts in each bin for each day.
+4. Average bout count across days for each bin.
+5. Plot the mouse-level daily average count.
+6. Calculate group mean ± SEM across mice.
+
+--------------------------------------
+4. Bout count: phase-normalized count
+
+For each mouse:
+
+1. Detect bouts as consecutive active minutes.
+2. Assign each bout to the bin where the bout starts.
+3. Count bouts in each bin across all analyzed days.
+4. Within each phase, calculate:
+
+   bout count percentage in bin =
+   total bout count in that bin / total bout count in that phase × 100
+
+5. Plot mouse-level percentages.
+6. Calculate group mean ± SEM across mice.
+
+--------------------------------------
+5. Bout duration: raw averaged duration
+
+For each mouse:
+
+1. Detect bouts as consecutive active minutes.
+2. Calculate each bout duration in minutes.
+3. Assign each bout to the bin where the bout starts.
+4. For each day and bin, calculate the mean bout duration.
+5. Average these daily mean durations across days for each bin.
+6. Plot the mouse-level averaged duration in minutes.
+7. Calculate group mean ± SEM across mice.
+
+--------------------------------------
+6. Bout duration: phase-normalized duration
+
+For each mouse:
+
+1. Calculate averaged bout duration per bin as above.
+2. Within each phase, calculate:
+
+   duration percentage in bin =
+   averaged duration in that bin / sum of averaged durations in that phase × 100
+
+3. Plot mouse-level percentages.
+4. Calculate group mean ± SEM across mice.
+
+--------------------------------------
+7. Inactivity interval
+
+This metric replaces classic inter-bout interval.
+
+For each mouse, day, and time bin:
+
+1. Detect all bouts within the time window.
+2. If no bout occurs:
+      inactivity interval = full window duration
+      3 h bin = 180 min
+      6 h bin = 360 min
+
+3. If one or more bouts occur:
+      calculate all inactive gaps within the window:
+
+      window start → first bout
+      between consecutive bouts
+      last bout → window end
+
+4. Average these inactive gaps for that bin and day.
+5. Average the daily inactivity intervals across days for each mouse/bin.
+6. Plot mouse-level averaged inactivity interval.
+7. Calculate group mean ± SEM across mice.

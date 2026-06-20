@@ -3,11 +3,11 @@ The issue that c3 wheel data has shuffled indices is because that everytime the 
 So the true pairings of c3 mice and wheels are:
 
 wheel  mouse
-1	12
-2	10
-3	11
-4	13
-5	15
-6	14
-7	9
+1	sc12
+2	sc10
+3	sc11
+4	sc13
+5	sc15
+6	sc14
+7	sc9
 
